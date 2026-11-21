@@ -64,7 +64,7 @@ window.Kameen = window.Kameen || {};
     };
   }
 
-  function randomPointInZone(center, r, rng = Math.random, maxFrac = 0.78) {
+  function randomPointInZone(center, r, rng = Math.random, maxFrac = 0.76) {
     const dist = Math.sqrt(rng()) * r * maxFrac;
     const theta = rng() * Math.PI * 2;
     return offsetCoordinates(center, Math.cos(theta) * dist, Math.sin(theta) * dist);
@@ -217,26 +217,33 @@ window.Kameen = window.Kameen || {};
       const players = {};
       const missions = {};
 
-      for (const lp of lobbyPlayers) {
+      lobbyPlayers.forEach((lp, idx) => {
         const role = roles[lp.id] ?? "INVESTIGATOR";
-        const coords = lp.coords ?? randomPointInZone(config.zoneCenter, config.zoneRadiusMeters, this.rng, 0.35);
+        // Ensure initial coordinates are safely inside the zone so nobody dies instantly!
+        let coords = lp.coords;
+        if (!coords || !isInsideZone(coords, config.zoneCenter, config.zoneRadiusMeters * 0.9)) {
+          coords = randomPointInZone(config.zoneCenter, config.zoneRadiusMeters, this.rng, 0.3);
+        }
         players[lp.id] = {
           id: lp.id, name: lp.name, isBot: Boolean(lp.isBot), isHost: Boolean(lp.isHost), isReady: true,
+          botIndex: idx,
           role, alive: true, eliminationReason: null, eliminatedAtMs: null,
-          coords, lastCoords: { ...coords }, lastTelemetryAtMs: nowMs,
+          coords: { ...coords }, lastCoords: { ...coords }, lastTelemetryAtMs: nowMs,
           speedMps: 0, maxRecentSpeedMps: 0, peakSpeedMps: 0,
           stationarySeconds: 0, totalStationarySec: 0,
           killsCount: 0, airdropsClaimed: 0, missionsCompleted: 0,
           points: C.INITIAL_POINTS,
           stealthUsesRemaining: 1, stealthArmedForNextReveal: false, stealthActiveInCurrentReveal: false,
-          protectedUntilMs: 0, killCooldownUntilMs: nowMs + spreadMs,
+          protectedUntilMs: 0,
+          // Grace cooldown AFTER spread ends so game NEVER ends immediately after spread!
+          killCooldownUntilMs: nowMs + spreadMs + C.ACTIVE_START_GRACE_MS,
           outsideZoneSinceMs: null, brokerRedBroadcastUntilMs: 0,
           spokenNameCooldownUntilMs: 0,
         };
         missions[lp.id] = generatePlayerMissions(
           lp.id, role, coords, config.pois, config.zoneCenter, config.zoneRadiusMeters, this.rng
         );
-      }
+      });
 
       return {
         matchId: config.matchId,
@@ -260,8 +267,8 @@ window.Kameen = window.Kameen || {};
         brokerMinute4Triggered: false,
         brokerMinute8Triggered: false,
         activeBrokerOffer: null,
-        activeAirdrop: null, // { id, coords, expiresAtMs, rewardPoints, claimedByName }
-        decoyPing: null,     // { coords, expiresAtMs }
+        activeAirdrop: null,
+        decoyPing: null,
         recentEncounters: [],
         zone: {
           center: config.zoneCenter,
@@ -283,7 +290,7 @@ window.Kameen = window.Kameen || {};
             id: "evt-0",
             timestampMs: nowMs,
             type: "MATCH_STARTED",
-            message: `بدأ الكمين! عندكم ${Math.round(spreadMs / 1000)} ثانية تتشتتوا في المنطقة.. ابعدوا عن بعض بسرعة!`,
+            message: `بدأ الكمين! عندكم ${Math.round(spreadMs / 1000)} ثانية تتشتتوا في المنطقة.. محدش باين لحد دلوقتي!`,
           },
         ],
       };
@@ -312,46 +319,59 @@ window.Kameen = window.Kameen || {};
     getSnapshot() { return JSON.parse(JSON.stringify(this.state)); }
     getLivingPlayers() { return Object.values(this.state.players).filter((p) => p.alive); }
 
+    enterActivePhase(nowMs) {
+      this.state.phase = "ACTIVE";
+      this.state.revealEndsAtMs = 0;
+      this.state.activeElapsedMs = 0;
+      // Reset all zone timers & enforce 25s post-spread safety grace so game never ends instantly!
+      for (const p of Object.values(this.state.players)) {
+        p.outsideZoneSinceMs = null;
+        p.killCooldownUntilMs = nowMs + C.ACTIVE_START_GRACE_MS;
+      }
+      this.pushEvent("PHASE_CHANGED", "🔥 وقت التشتيت خلص! اللعب الجد بدأ — عندكم 25 ثانية أمان قبل ما التفنيش يتفتح!", nowMs);
+    }
+
     skipSpread(nowMs = this.state.nowMs) {
       if (this.state.phase === "SPREAD") {
         this.state.spreadEndsAtMs = nowMs;
-        this.state.phase = "ACTIVE";
-        for (const p of Object.values(this.state.players)) p.killCooldownUntilMs = nowMs;
-        this.pushEvent("PHASE_CHANGED", "🔥 وقت التشتيت خلص! اللعب الجد بدأ — افتح عينك!", nowMs);
+        this.enterActivePhase(nowMs);
       }
     }
 
-    // Simulation-only helper so user can test playing as both Imposter & Investigator!
     simTogglePlayerRole(playerId) {
       const p = this.state.players[playerId];
       if (!p) return { ok: false };
       const nextRole = p.role === "IMPOSTER" ? "INVESTIGATOR" : "IMPOSTER";
       p.role = nextRole;
-      // Ensure at least one imposter exists if switching to Investigator
       const imps = Object.values(this.state.players).filter((x) => x.alive && x.role === "IMPOSTER");
       if (imps.length === 0) {
         const bot = Object.values(this.state.players).find((x) => x.isBot && x.alive);
         if (bot) bot.role = "IMPOSTER";
       }
-      p.killCooldownUntilMs = this.state.nowMs;
+      if (this.state.phase === "ACTIVE") {
+        p.killCooldownUntilMs = this.state.nowMs;
+      }
       return { ok: true, role: nextRole };
     }
 
     getVisibleStateForPlayer(viewerId) {
       const self = this.state.players[viewerId] || Object.values(this.state.players)[0];
       const nowMs = this.state.nowMs;
-      const isRevealActive = this.state.revealEndsAtMs > nowMs;
+      const isSpread = this.state.phase === "SPREAD";
+      const isRevealActive = !isSpread && this.state.revealEndsAtMs > nowMs;
       const isGameOver = this.state.phase === "GAME_OVER";
-      const isGhost = !self.alive;
+      const isGhost = !self.alive && !isSpread;
 
       const players = Object.values(this.state.players).map((p) => {
         const isSelf = p.id === self.id;
         const isPartner = self.role === "IMPOSTER" && p.role === "IMPOSTER";
-        const isRedBroadcast = p.alive && p.brokerRedBroadcastUntilMs > nowMs;
-        const isSpread = this.state.phase === "SPREAD";
-        const canSeeCoords =
-          isSelf || isGameOver || isGhost ||
-          (!isSpread && (isRedBroadcast || (isRevealActive && p.alive && !p.stealthActiveInCurrentReveal)));
+        const isRedBroadcast = !isSpread && p.alive && p.brokerRedBroadcastUntilMs > nowMs;
+
+        // STRICT RULE: During SPREAD, NEVER leak ANY other player's coordinates!
+        const canSeeCoords = isSpread
+          ? isSelf
+          : (isSelf || isGameOver || isGhost || isRedBroadcast || (isRevealActive && p.alive && !p.stealthActiveInCurrentReveal));
+
         const canSeeRole = isSelf || isGameOver || isPartner || isGhost;
         return {
           id: p.id, name: p.name, isBot: p.isBot, isHost: p.isHost, alive: p.alive,
@@ -369,15 +389,19 @@ window.Kameen = window.Kameen || {};
             .map((p) => ({ id: p.id, name: p.name }))
         : [];
 
-      const outsideZoneRemainingMs = self.alive && self.outsideZoneSinceMs !== null
+      const outsideZoneRemainingMs = !isSpread && self.alive && self.outsideZoneSinceMs !== null
         ? Math.max(0, C.OUTSIDE_ZONE_GRACE_MS - (nowMs - self.outsideZoneSinceMs))
         : null;
 
-      const decoyPing = (this.state.decoyPing && this.state.decoyPing.expiresAtMs > nowMs)
+      const decoyPing = (!isSpread && this.state.decoyPing && this.state.decoyPing.expiresAtMs > nowMs)
         ? this.state.decoyPing : null;
 
-      const activeAirdrop = (this.state.activeAirdrop && this.state.activeAirdrop.expiresAtMs > nowMs)
+      const activeAirdrop = (!isSpread && this.state.activeAirdrop && this.state.activeAirdrop.expiresAtMs > nowMs)
         ? this.state.activeAirdrop : null;
+
+      const postSpreadGraceSec = (this.state.phase === "ACTIVE" && this.state.activeElapsedMs < C.ACTIVE_START_GRACE_MS)
+        ? Math.ceil((C.ACTIVE_START_GRACE_MS - this.state.activeElapsedMs) / 1000)
+        : 0;
 
       return {
         matchId: this.state.matchId, code: this.state.code, hostId: this.state.hostId,
@@ -385,7 +409,8 @@ window.Kameen = window.Kameen || {};
         aiMatchRecap: this.state.aiMatchRecap,
         nowMs, activeElapsedMs: this.state.activeElapsedMs,
         remainingMatchMs: Math.max(0, this.state.matchDurationMs - this.state.activeElapsedMs),
-        spreadRemainingMs: this.state.phase === "SPREAD" ? Math.max(0, this.state.spreadEndsAtMs - nowMs) : 0,
+        spreadRemainingMs: isSpread ? Math.max(0, this.state.spreadEndsAtMs - nowMs) : 0,
+        postSpreadGraceSec,
         revealRemainingMs: isRevealActive ? Math.max(0, this.state.revealEndsAtMs - nowMs) : 0,
         nextShrinkInMs: Math.max(0, this.state.zone.nextShrinkAtActiveMs - this.state.activeElapsedMs),
         isRevealActive, showdownActive: this.state.showdownActive,
@@ -414,14 +439,15 @@ window.Kameen = window.Kameen || {};
       const deltaSec = deltaMs / 1000;
       this.state.nowMs = nextNowMs;
 
+      // 1. SPREAD PHASE — ONLY counts down spread timer. NEVER ends match or kills players!
       if (this.state.phase === "SPREAD") {
         if (nextNowMs >= this.state.spreadEndsAtMs) {
-          this.state.phase = "ACTIVE";
-          this.pushEvent("PHASE_CHANGED", "🔥 وقت التشتيت خلص! الغدّار طلق إيده والمحلل النفسي فتح عينه عليكم!", nextNowMs);
+          this.enterActivePhase(nextNowMs);
         }
         return this.getSnapshot();
       }
 
+      // 2. EMERGENCY MEETING PHASE
       if (this.state.phase === "MEETING" && this.state.activeMeeting) {
         if (nextNowMs >= this.state.activeMeeting.endsAtMs) {
           this.resolveMeeting(nextNowMs);
@@ -429,6 +455,7 @@ window.Kameen = window.Kameen || {};
         return this.getSnapshot();
       }
 
+      // 3. ACTIVE GAMEPLAY PHASE
       if (this.state.phase === "ACTIVE") {
         this.state.activeElapsedMs += deltaMs;
         const remainingMs = this.state.matchDurationMs - this.state.activeElapsedMs;
@@ -443,7 +470,7 @@ window.Kameen = window.Kameen || {};
           this.pushEvent("SHOWDOWN", "🔥🚨 الخاتمة السخنة بدأت! الرادار هيضرب كل 45 ثانية وتهدئة التفنيش قلت للنص!", nextNowMs);
         }
 
-        // Behavioral profiling: stationary duration & close encounters
+        // Behavioral profiling
         const living = this.getLivingPlayers();
         for (const p of living) {
           if (p.speedMps < 0.35) {
@@ -469,12 +496,11 @@ window.Kameen = window.Kameen || {};
           }
         }
 
-        // Expire decoy ping
         if (this.state.decoyPing && nextNowMs >= this.state.decoyPing.expiresAtMs) {
           this.state.decoyPing = null;
         }
 
-        // Supply Drop / Airdrop spawn & expiry
+        // Supply Drop / Airdrop
         if (this.state.activeAirdrop && nextNowMs >= this.state.activeAirdrop.expiresAtMs) {
           this.state.activeAirdrop = null;
           this.pushEvent("AIRDROP_EXPIRED", "💼 شنطة الإمداد اختفت عشان محدش لحقها!", nextNowMs);
@@ -503,10 +529,13 @@ window.Kameen = window.Kameen || {};
           this.state.zone.nextShrinkAtActiveMs += C.ZONE_SHRINK_INTERVAL_MS;
         }
 
-        this.evaluateZoneBoundary(nextNowMs);
-        if (this.state.phase === "GAME_OVER") return this.getSnapshot();
+        // Zone boundary check (only after 5s into ACTIVE so initial transition is rock-solid)
+        if (this.state.activeElapsedMs >= 5000) {
+          this.evaluateZoneBoundary(nextNowMs);
+          if (this.state.phase === "GAME_OVER") return this.getSnapshot();
+        }
 
-        // Broker deals at 3.5m & 7.5m
+        // Broker deals
         if (!this.state.brokerMinute4Triggered && this.state.activeElapsedMs >= C.BROKER_MINUTE_4_MS) {
           this.state.brokerMinute4Triggered = true;
           this.triggerBrokerOffer(4, nextNowMs);
@@ -555,8 +584,7 @@ window.Kameen = window.Kameen || {};
       const sector = getSectorName(coords, this.state.zone.center);
       this.state.activeAirdrop = {
         id: this.nextEventId("drop"),
-        coords,
-        sector,
+        coords, sector,
         expiresAtMs: nowMs + C.AIRDROP_DURATION_MS,
         rewardPoints: C.AIRDROP_REWARD_POINTS,
       };
@@ -581,7 +609,7 @@ window.Kameen = window.Kameen || {};
     }
 
     triggerLocationReveal(nowMs = this.state.nowMs, durMs = C.REVEAL_DURATION_MS) {
-      if (this.state.phase === "SPREAD") return;
+      if (this.state.phase !== "ACTIVE") return;
       this.state.revealEndsAtMs = nowMs + durMs;
       for (const p of Object.values(this.state.players)) {
         if (p.stealthArmedForNextReveal) {
@@ -604,6 +632,7 @@ window.Kameen = window.Kameen || {};
     }
 
     evaluateZoneBoundary(nowMs) {
+      let someoneEliminated = false;
       for (const player of this.getLivingPlayers()) {
         const inside = isInsideZone(player.coords, this.state.zone.center, this.state.zone.currentRadiusMeters);
         if (inside) {
@@ -616,11 +645,12 @@ window.Kameen = window.Kameen || {};
             player.eliminationReason = "OUTSIDE_ZONE";
             player.eliminatedAtMs = nowMs;
             player.outsideZoneSinceMs = null;
+            someoneEliminated = true;
             this.pushEvent("ZONE_ELIMINATION", `💀 الزون كلت ${player.name} عشان فضّل برّه أكتر من 20 ثانية!`, nowMs, player.id);
           }
         }
       }
-      this.checkWinConditions(nowMs);
+      if (someoneEliminated) this.checkWinConditions(nowMs);
     }
 
     updatePlayerLocation(playerId, coords, nowMs = this.state.nowMs) {
@@ -634,10 +664,10 @@ window.Kameen = window.Kameen || {};
       player.lastTelemetryAtMs = nowMs;
       player.speedMps = speed;
       if (speed > (player.maxRecentSpeedMps || 0)) player.maxRecentSpeedMps = speed;
-      if (speed > (player.peakSpeedMps || 0) && speed < 14) player.peakSpeedMps = speed; // cap GPS jumps
+      if (speed > (player.peakSpeedMps || 0) && speed < 14) player.peakSpeedMps = speed;
       if (movedM > 2.5) player.stationarySeconds = 0;
 
-      if (this.state.phase === "ACTIVE" && player.alive) {
+      if (this.state.phase === "ACTIVE" && this.state.activeElapsedMs >= 5000 && player.alive) {
         const inside = isInsideZone(coords, this.state.zone.center, this.state.zone.currentRadiusMeters);
         if (inside) player.outsideZoneSinceMs = null;
         else if (player.outsideZoneSinceMs === null) player.outsideZoneSinceMs = nowMs;
@@ -686,7 +716,7 @@ window.Kameen = window.Kameen || {};
       if (p.points < C.JAMMER_COST) return { ok: false, error: `محتاج ${C.JAMMER_COST} نقطة لتكتيم المحلل` };
       p.points -= C.JAMMER_COST;
       this.state.aiJammedUntilMs = nowMs + C.JAMMER_DELAY_MS;
-      this.state.revealEndsAtMs = 0; // cuts active radar immediately!
+      this.state.revealEndsAtMs = 0;
       this.pushEvent("AI_JAMMED", "⚡ تشويش إلكتروني! المحلل النفسي والرادار فصلوا مؤقتاً!", nowMs);
       return { ok: true, toast: "⚡ كتمت المحلل النفسي وفصلت الرادار 75 ثانية! اتصرف براحتك!" };
     }
@@ -700,7 +730,7 @@ window.Kameen = window.Kameen || {};
       if (!tgt.alive || tgt.role === "IMPOSTER") return { ok: false, error: "الهدف مش متاح" };
       if (imp.killCooldownUntilMs > nowMs) {
         const rem = Math.ceil((imp.killCooldownUntilMs - nowMs) / 1000);
-        return { ok: false, error: `استنى ${rem} ثانية عشان تفنش تاني!` };
+        return { ok: false, error: `استنى ${rem} ثانية عشان تفنش!` };
       }
       if (tgt.protectedUntilMs > nowMs) return { ok: false, error: "🛡️ يا خسارة! ده مفعل درع الحماية دلوقتي!" };
 
@@ -1050,7 +1080,7 @@ window.Kameen = window.Kameen || {};
     }
 
     checkWinConditions(nowMs) {
-      if (this.state.phase === "GAME_OVER") return;
+      if (this.state.phase !== "ACTIVE") return;
       const living = this.getLivingPlayers();
       const imps = living.filter((p) => p.role === "IMPOSTER");
       const invs = living.filter((p) => p.role === "INVESTIGATOR");
@@ -1062,6 +1092,7 @@ window.Kameen = window.Kameen || {};
     }
 
     endMatch(winner, reason, nowMs) {
+      if (this.state.phase === "GAME_OVER") return;
       this.state.phase = "GAME_OVER";
       this.state.winner = winner;
       this.state.winReason = reason;
@@ -1082,7 +1113,7 @@ window.Kameen = window.Kameen || {};
     };
   }
 
-  function stepBots(engine, stepMeters = 4.2) {
+  function stepBots(engine, stepMeters = 3.8) {
     const snap = engine.getSnapshot();
     const nowMs = snap.nowMs;
     if (snap.phase === "GAME_OVER") return;
@@ -1109,16 +1140,22 @@ window.Kameen = window.Kameen || {};
 
     const bots = Object.values(snap.players).filter((p) => p.alive && p.isBot);
     for (const bot of bots) {
-      if (!isInsideZone(bot.coords, snap.zone.center, snap.zone.currentRadiusMeters * 0.82)) {
-        engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, snap.zone.center, stepMeters * 1.45), nowMs);
+      // Keep bots safely inside zone
+      if (!isInsideZone(bot.coords, snap.zone.center, snap.zone.currentRadiusMeters * 0.8)) {
+        engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, snap.zone.center, stepMeters * 1.4), nowMs);
         continue;
       }
+
+      // During SPREAD, disperse bots evenly around the zone at wide angles so they don't clump
       if (snap.phase === "SPREAD") {
-        const angle = ((bot.id.charCodeAt(bot.id.length - 1) % 8) * Math.PI) / 4;
-        const target = offsetCoordinates(snap.zone.center, Math.cos(angle) * 65, Math.sin(angle) * 65);
+        const idx = bot.botIndex || 1;
+        const angle = ((idx * 137.5) % 360) * (Math.PI / 180);
+        const targetDist = snap.zone.currentRadiusMeters * (0.42 + ((idx % 3) * 0.12));
+        const target = offsetCoordinates(snap.zone.center, Math.cos(angle) * targetDist, Math.sin(angle) * targetDist);
         engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, target, stepMeters), nowMs);
         continue;
       }
+
       if (bot.role === "INVESTIGATOR") {
         const nearbyBody = snap.bodies.find((b) => !b.reported && distanceMeters(bot.coords, b.coords) <= 16);
         if (nearbyBody) {
@@ -1126,7 +1163,9 @@ window.Kameen = window.Kameen || {};
           return;
         }
       }
-      if (bot.role === "IMPOSTER" && bot.killCooldownUntilMs <= nowMs) {
+
+      // Imposter bot only hunts AFTER the 25s post-spread grace period!
+      if (bot.role === "IMPOSTER" && snap.activeElapsedMs >= C.ACTIVE_START_GRACE_MS && bot.killCooldownUntilMs <= nowMs) {
         const invs = Object.values(snap.players).filter((p) => p.alive && p.role === "INVESTIGATOR");
         let nearest = invs[0], minDist = nearest ? distanceMeters(bot.coords, nearest.coords) : Infinity;
         for (const inv of invs) {
@@ -1135,18 +1174,19 @@ window.Kameen = window.Kameen || {};
         }
         if (nearest) {
           if (minDist <= 8) { engine.attemptKill(bot.id, nearest.id, nowMs); continue; }
-          if (minDist <= 55) { engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, nearest.coords, stepMeters * 1.15), nowMs); continue; }
+          if (minDist <= 48) { engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, nearest.coords, stepMeters * 1.05), nowMs); continue; }
         }
       }
-      // Chase nearby Airdrop if close!
-      if (snap.activeAirdrop && distanceMeters(bot.coords, snap.activeAirdrop.coords) <= 65) {
+
+      if (snap.activeAirdrop && distanceMeters(bot.coords, snap.activeAirdrop.coords) <= 60) {
         if (distanceMeters(bot.coords, snap.activeAirdrop.coords) <= C.AIRDROP_CLAIM_RANGE_M) {
           engine.claimAirdrop(bot.id, nowMs);
         } else {
-          engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, snap.activeAirdrop.coords, stepMeters * 1.15), nowMs);
+          engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, snap.activeAirdrop.coords, stepMeters * 1.1), nowMs);
         }
         continue;
       }
+
       const missions = snap.missions[bot.id] ?? [];
       const act = missions.find((m) => m.status === "in_progress" || m.status === "pending");
       if (act) {

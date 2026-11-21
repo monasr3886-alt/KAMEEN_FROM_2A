@@ -19,12 +19,14 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body>
+  <div id="danger-vignette" class="hidden"></div>
   <div id="toast-root"></div>
   <div id="page-root" class="shell"></div>
 
   <div id="map-screen" class="hidden">
     <div id="persistent-leaflet-map"></div>
     <svg id="fallback-radar" class="hidden" viewBox="0 0 400 700" preserveAspectRatio="xMidYMid slice"></svg>
+    <div class="map-grid-fx"></div>
     <div id="map-hud-top"></div>
     <div id="sim-dpad-root" class="hidden"></div>
     <div id="map-hud-bottom"></div>
@@ -32,7 +34,7 @@
 
   <div id="modal-root"></div>
 
-  <!-- Flat Modular Scripts (Zero Subfolders — 100% GitHub Pages Ready) -->
+  <!-- Flat Modular Files — Ready for GitHub & Vercel (Zero Subfolders) -->
   <script src="./config.js"></script>
   <script src="./engine.js"></script>
   <script src="./ai.js"></script>

@@ -99,17 +99,23 @@ window.Kameen = window.Kameen || {};
     st.gps.watchId = navigator.geolocation.watchPosition(
       (pos) => {
         const acc = Math.round(pos.coords.accuracy);
+        // Filter noisy GPS jumps during an active real match (>35m accuracy ignored after initial lock)
+        if (st.engine && !st.isSimMode && st.gps.centeredOnce && acc > 35) {
+          return;
+        }
         st.gps.status = "granted";
         st.gps.accuracy = acc;
         st.gps.error = null;
-        st.gps.coords = {
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          accuracyMeters: acc,
-        };
+        if (!st.isSimMode) {
+          st.gps.coords = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            accuracyMeters: acc,
+          };
+        }
         if (!st.gps.centeredOnce) {
-          st.createForm.center = { ...st.gps.coords };
-          if (st.leafletMap) st.leafletMap.setView([st.gps.coords.lat, st.gps.coords.lng], 17);
+          st.createForm.center = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyMeters: acc };
+          if (st.leafletMap && !st.isSimMode) st.leafletMap.setView([pos.coords.latitude, pos.coords.longitude], 17);
           st.gps.centeredOnce = true;
         }
         const now = Date.now();
@@ -125,7 +131,7 @@ window.Kameen = window.Kameen || {};
         st.gps.error = err.code === 1
           ? "رفضت إذن الموقع — افتحه من إعدادات المتصفح"
           : (location.protocol !== "https:" && location.hostname !== "localhost")
-            ? "الـ GPS محتاج رابط HTTPS (جيت هاب بيدعمه!)"
+            ? "الـ GPS محتاج رابط HTTPS (جيت هاب / فيرسل بيدعمه!)"
             : "لسه بيلقط إشارة GPS...";
         K.UI.updateGpsStatusDOM();
       },
@@ -172,6 +178,13 @@ window.Kameen = window.Kameen || {};
     document.getElementById("page-root").classList.toggle("hidden", isMap);
     document.getElementById("map-screen").classList.toggle("hidden", !isMap);
 
+    if (nextRoute === "game" || nextRoute === "simulation") {
+      void K.WakeLock.acquire();
+    } else if (nextRoute === "landing" || nextRoute === "result") {
+      K.WakeLock.release();
+      K.setDangerVignette(false);
+    }
+
     if (isMap) {
       const c = nextRoute === "create"
         ? st.createForm.center
@@ -207,11 +220,11 @@ window.Kameen = window.Kameen || {};
         break;
       case "KILL":
         res = st.engine.attemptKill(playerId, data.targetId, t);
-        if (res.ok) K.SFX.play("kill");
+        if (res.ok) { K.SFX.play("kill"); K.triggerShake(); }
         break;
       case "REPORT":
         res = st.engine.reportBody(playerId, data.bodyId, t);
-        if (res.ok) K.SFX.play("alarm");
+        if (res.ok) { K.SFX.play("alarm"); K.triggerShake(); }
         break;
       case "VOTE":
         res = st.engine.castVote(playerId, data.targetId, t);
@@ -350,12 +363,14 @@ window.Kameen = window.Kameen || {};
     if (me && !me.alive && !st.eliminatedAck && snap.phase !== "GAME_OVER") {
       st.eliminatedAck = true;
       K.SFX.play("kill");
+      K.triggerShake();
       st.modal = "eliminated";
       K.UI.renderModal();
     }
 
     if (snap.phase === "MEETING" && prevPhase !== "MEETING") {
       K.SFX.play("alarm");
+      K.triggerShake();
     }
 
     if (snap.phase === "MEETING" && (st.route === "game" || st.route === "missions" || st.route === "simulation")) {
@@ -406,7 +421,7 @@ window.Kameen = window.Kameen || {};
         const stepMs = st.isSimMode ? 1000 * st.simSpeed : 1000;
         st.simTimeMs = st.isSimMode ? st.simTimeMs + stepMs : Date.now();
         st.engine.tick(st.simTimeMs);
-        K.stepBots(st.engine, st.isSimMode ? 3.8 * st.simSpeed : 3.8);
+        K.stepBots(st.engine, st.isSimMode ? 3.5 * st.simSpeed : 3.5);
         void K.AI.triggerProfilerReport(false);
         K.Network.broadcastMatchSnapshot(false);
 
@@ -476,11 +491,15 @@ window.Kameen = window.Kameen || {};
   }
 
   // =========================================================================
-  // GLOBAL EVENT HANDLERS FOR HTML BUTTONS
+  // GLOBAL EVENT HANDLERS
   // =========================================================================
   window.onNav = (route) => { K.SFX.play("click"); navigate(route); };
   window.onOpenModal = (name) => { K.SFX.play("click"); K.state.modal = name; K.UI.renderModal(); };
-  window.onCloseModal = () => { K.state.modal = null; K.UI.renderModal(); if (K.state.route === "game" || K.state.route === "simulation") K.UI.updateHudOnly(); };
+  window.onCloseModal = () => {
+    K.state.modal = null;
+    K.UI.renderModal();
+    if (K.state.route === "game" || K.state.route === "simulation") K.UI.updateHudOnly();
+  };
 
   window.onStartCreateFlow = () => {
     K.SFX.play("click");
@@ -514,7 +533,7 @@ window.Kameen = window.Kameen || {};
     K.Map.updateLayers();
     const lbl = document.getElementById("create-radius-lbl");
     if (lbl) {
-      lbl.innerHTML = `نصف القطر: <span style="color:var(--warning);">${val}م</span> • ${K.state.createForm.pois.length} نقطة (${K.escHtml(K.state.createForm.poiSource || "جاهز")})`;
+      lbl.innerHTML = `نصف القطر: <span style="color:var(--gold);">${val}م</span> • ${K.state.createForm.pois.length} نقطة (${K.escHtml(K.state.createForm.poiSource || "جاهز")})`;
     }
   };
 
@@ -637,15 +656,14 @@ window.Kameen = window.Kameen || {};
   window.onStartSimulation = () => {
     const st = K.state;
     K.SFX.play("click");
-    startRealGps();
     K.Network.disconnectRoomChannel();
     const t0 = Date.now();
-    const center = st.gps.coords;
+    const center = { ...st.gps.coords };
     const bots = [
-      { id: st.user.id, name: st.user.name || "العميل X", isBot: false, isHost: true, isReady: true, coords: center },
+      { id: st.user.id, name: st.user.name || "العميل X", isBot: false, isHost: true, isReady: true, coords: { ...center } },
       ...K.BOT_NAMES.slice(0, 6).map((n, i) => ({
         id: "sim-bot-" + i, name: n + " 🤖", isBot: true, isHost: false, isReady: true,
-        coords: K.Geo.offsetCoordinates(center, Math.cos(i) * 25, Math.sin(i) * 25),
+        coords: K.Geo.offsetCoordinates(center, Math.cos(i) * 30, Math.sin(i) * 30),
       })),
     ];
     st.isSimMode = true;
@@ -655,7 +673,7 @@ window.Kameen = window.Kameen || {};
     st.simTimeMs = t0;
     st.engine = new K.KameenEngine({
       matchId: "sim-lab-" + t0, code: "SIM001", hostId: st.user.id, title: "مختبر المحاكاة",
-      zoneCenter: center, zoneRadiusMeters: 220, durationMinutes: 15, spreadSeconds: 30,
+      zoneCenter: center, zoneRadiusMeters: 220, durationMinutes: 15, spreadSeconds: 25,
       imposterCount: 1, pois: K.Geo.generateFallbackPOIs(center, 220), seed: t0,
     }, bots, t0);
     st.roleRevealed = false;
@@ -711,7 +729,6 @@ window.Kameen = window.Kameen || {};
     dispatchAction("POST_CHAT", { text: txt });
   };
 
-  // Simulation Lab Controls
   window.cycleSimSpeed = () => {
     K.state.simSpeed = K.state.simSpeed === 5 ? 1 : K.state.simSpeed === 2 ? 5 : 2;
     K.UI.updateHudOnly();
@@ -736,7 +753,7 @@ window.Kameen = window.Kameen || {};
       K.UI.updateHudOnly();
     }
   };
-  window.onSimSkipSpread = () => { K.state.engine?.skipSpread(K.state.simTimeMs); K.UI.updateHudOnly(); };
+  window.onSimSkipSpread = () => { K.state.engine?.skipSpread(K.state.simTimeMs); K.Map.updateLayers(); K.UI.updateHudOnly(); };
   window.onSimForceAI = () => { K.showToast("🤖 بنكلّم الذكاء الاصطناعي..."); void K.AI.triggerProfilerReport(true); };
   window.onSimSpawnAirdrop = () => { K.state.engine?.spawnAirdrop(K.state.simTimeMs); K.Map.updateLayers(); K.UI.updateHudOnly(); };
   window.onSimTriggerBroker = () => { K.state.engine?.triggerBrokerOffer(4, K.state.simTimeMs); K.UI.updateHudOnly(); };
@@ -746,6 +763,8 @@ window.Kameen = window.Kameen || {};
   window.exitGameToLanding = () => {
     if (K.state.tickTimer) clearInterval(K.state.tickTimer);
     K.Network.disconnectRoomChannel();
+    K.WakeLock.release();
+    K.setDangerVignette(false);
     K.state.isSimMode = false;
     K.state.engine = null;
     K.state.lobby = null;
@@ -756,6 +775,8 @@ window.Kameen = window.Kameen || {};
   window.exitGameToCreate = () => {
     if (K.state.tickTimer) clearInterval(K.state.tickTimer);
     K.Network.disconnectRoomChannel();
+    K.WakeLock.release();
+    K.setDangerVignette(false);
     K.state.isSimMode = false;
     K.state.engine = null;
     K.state.lobby = null;
@@ -765,6 +786,12 @@ window.Kameen = window.Kameen || {};
 
   window.addEventListener("resize", () => {
     if (K.state.leafletMap) K.state.leafletMap.invalidateSize(true);
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && (K.state.route === "game" || K.state.route === "simulation")) {
+      void K.WakeLock.acquire();
+    }
   });
 
   K.App = {
@@ -779,7 +806,6 @@ window.Kameen = window.Kameen || {};
     startEngineLoop,
   };
 
-  // Boot: Check ?join=CODE URL parameter for 1-click WhatsApp invites!
   try {
     const params = new URLSearchParams(window.location.search);
     const inviteCode = params.get("join");
