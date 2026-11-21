@@ -3,6 +3,76 @@
 window.Kameen = window.Kameen || {};
 
 (function (K) {
+  // Persistent keyed marker registries (NEVER call clearLayers() every second!)
+  const reg = {
+    zoneCircle: null,
+    nextZoneCircle: null,
+    routeLine: null,
+    centerPin: null,
+    createPois: new Map(),
+    missions: new Map(),
+    landmarks: new Map(),
+    players: new Map(),
+    bodies: new Map(),
+    airdrop: null,
+    decoy: null,
+  };
+
+  // Smooth rAF animator for self dot (Google Maps-style glide without breaking Leaflet zoom!)
+  const selfAnim = {
+    curLat: null, curLng: null,
+    tgtLat: null, tgtLng: null,
+    rafId: null,
+  };
+
+  function makePinIcon(cls, size, htmlInner = "") {
+    return window.L.divIcon({
+      className: "kpin-wrap",
+      html: `<div class="kpin ${cls}">${htmlInner}</div>`,
+      iconSize: [size, size],
+      iconAnchor: [size / 2, size / 2],
+    });
+  }
+
+  function clearMapRegistry() {
+    const st = K.state;
+    const g = st.leafletGroup;
+    if (!g) return;
+    if (reg.zoneCircle) { g.removeLayer(reg.zoneCircle); reg.zoneCircle = null; }
+    if (reg.nextZoneCircle) { g.removeLayer(reg.nextZoneCircle); reg.nextZoneCircle = null; }
+    if (reg.routeLine) { g.removeLayer(reg.routeLine); reg.routeLine = null; }
+    if (reg.centerPin) { g.removeLayer(reg.centerPin); reg.centerPin = null; }
+    if (reg.airdrop) { g.removeLayer(reg.airdrop); reg.airdrop = null; }
+    if (reg.decoy) { g.removeLayer(reg.decoy); reg.decoy = null; }
+    for (const m of [reg.createPois, reg.missions, reg.landmarks, reg.players, reg.bodies]) {
+      for (const layer of m.values()) g.removeLayer(layer);
+      m.clear();
+    }
+  }
+
+  function syncKeyedMarkers(mapObj, items, buildFn, updateFn) {
+    const g = K.state.leafletGroup;
+    if (!g) return;
+    const activeKeys = new Set();
+    for (const item of items) {
+      activeKeys.add(item.key);
+      const existing = mapObj.get(item.key);
+      if (!existing) {
+        const mk = buildFn(item);
+        mk.addTo(g);
+        mapObj.set(item.key, mk);
+      } else {
+        updateFn(existing, item);
+      }
+    }
+    for (const [k, mk] of mapObj.entries()) {
+      if (!activeKeys.has(k)) {
+        g.removeLayer(mk);
+        mapObj.delete(k);
+      }
+    }
+  }
+
   function applyTileLayer() {
     const st = K.state;
     const radarEl = document.getElementById("fallback-radar");
@@ -27,14 +97,19 @@ window.Kameen = window.Kameen || {};
     if (st.mapStyle === "satellite") {
       url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
     } else if (st.mapStyle === "street") {
-      url = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+      url = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
     }
 
     st.tileErrorCount = 0;
-    st.baseTileLayer = window.L.tileLayer(url, { maxZoom: 19 }).addTo(st.leafletMap);
+    st.baseTileLayer = window.L.tileLayer(url, {
+      maxNativeZoom: 19,
+      maxZoom: 20,
+      keepBuffer: 4,
+    }).addTo(st.leafletMap);
+
     st.baseTileLayer.on("tileerror", () => {
       st.tileErrorCount += 1;
-      if (st.tileErrorCount >= 5 && st.mapStyle !== "radar") {
+      if (st.tileErrorCount >= 6 && st.mapStyle !== "radar") {
         st.mapStyle = "radar";
         applyTileLayer();
         K.showToast("📡 النت تقيل شوية — حولنا على الرادار التكتيكي!");
@@ -44,7 +119,7 @@ window.Kameen = window.Kameen || {};
     if (st.mapStyle === "satellite") {
       st.labelsTileLayer = window.L.tileLayer(
         "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-        { maxZoom: 19, opacity: 0.85 }
+        { maxNativeZoom: 19, maxZoom: 20, opacity: 0.85 }
       ).addTo(st.leafletMap);
     }
   }
@@ -58,7 +133,7 @@ window.Kameen = window.Kameen || {};
     K.UI.updateHudOnly();
   }
 
-  function initPersistentMap(center) {
+  function initPersistentMap(center, forceCenter = false) {
     const st = K.state;
     const el = document.getElementById("persistent-leaflet-map");
     if (!el) return;
@@ -72,17 +147,40 @@ window.Kameen = window.Kameen || {};
 
     if (st.leafletMap) {
       st.leafletMap.invalidateSize(true);
+      if (forceCenter && center) {
+        st.leafletMap.setView([center.lat, center.lng], Math.max(st.leafletMap.getZoom(), 17), { animate: false });
+      }
       return;
     }
 
     const map = window.L.map(el, {
       center: [center.lat, center.lng],
       zoom: 18,
+      minZoom: 12,
+      maxZoom: 20,
       zoomControl: false,
       attributionControl: false,
+      tapTolerance: 15,
+    });
+
+    // Lock out layer mutations during pinch-zoom so markers NEVER shift!
+    map.on("zoomstart", () => { st.mapZooming = true; });
+    map.on("zoomend", () => {
+      st.mapZooming = false;
+      updateLayers();
+    });
+
+    // Dragging pauses auto-follow (exact Google Maps behavior); tapping 📍 re-locks it
+    map.on("dragstart", () => {
+      if (st.mapFollowMe) {
+        st.mapFollowMe = false;
+        const fab = document.getElementById("follow-gps-fab");
+        if (fab) fab.classList.remove("active-fab");
+      }
     });
 
     map.on("click", (e) => {
+      if (st.mapZooming) return;
       K.App.handleMapTap({ lat: e.latlng.lat, lng: e.latlng.lng, accuracyMeters: 5 });
     });
 
@@ -90,18 +188,26 @@ window.Kameen = window.Kameen || {};
     st.leafletSelfGroup = window.L.layerGroup().addTo(map);
     st.leafletMap = map;
     applyTileLayer();
-    setTimeout(() => map.invalidateSize(true), 150);
+    setTimeout(() => map.invalidateSize(true), 180);
   }
 
   function recenter() {
     const st = K.state;
+    st.mapFollowMe = true;
+    // In simulation mode, tapping 📍 also re-enables real live GPS if available
+    if (st.route === "simulation" && st.gps.hasRealFix) {
+      st.simUseRealGps = true;
+      K.showToast("📍 الكاميرا والـ GPS الحقيقي شغالين مع حركتك!");
+    }
     const c = st.route === "create"
-      ? st.createForm.center
+      ? (st.gps.hasRealFix ? st.gps.coords : st.createForm.center)
       : (st.engine ? st.engine.getVisibleStateForPlayer(st.user.id).self.coords : st.gps.coords);
     if (st.leafletMap) {
       st.leafletMap.invalidateSize(true);
-      st.leafletMap.setView([c.lat, c.lng], 18, { animate: true });
+      st.leafletMap.setView([c.lat, c.lng], Math.max(st.leafletMap.getZoom(), 18), { animate: true });
     }
+    const fab = document.getElementById("follow-gps-fab");
+    if (fab) fab.classList.add("active-fab");
   }
 
   function buildSelfMarkerIcon(colorHex, isImp, headingDeg) {
@@ -120,9 +226,9 @@ window.Kameen = window.Kameen || {};
             </radialGradient>
           </defs>
           <path d="M 34 34 L 15 5 A 34 34 0 0 1 53 5 Z" fill="url(#${gradId})" />
-          <polygon points="34,7 29,17 39,17" fill="#FFFFFF" opacity="0.92" />
+          <polygon points="34,7 29,17 39,17" fill="#FFFFFF" opacity="0.95" />
         </svg>
-        <div class="self-core-dot ${isImp ? "imposter" : ""}" style="background:${colorHex};"></div>
+        <div class="self-core-dot pulse-gps ${isImp ? "imposter" : ""}" style="background:${colorHex};"></div>
       </div>
     `;
     return window.L.divIcon({
@@ -133,7 +239,6 @@ window.Kameen = window.Kameen || {};
     });
   }
 
-  // Ultra-fast heading rotation without rebuilding Leaflet layers
   function updateHeadingVisualOnly() {
     const st = K.state;
     const deg = st.gps.heading;
@@ -157,27 +262,55 @@ window.Kameen = window.Kameen || {};
     }
   }
 
-  function updateSelfMarkerOnMap(coords, colorHex, isImp, label) {
+  function stepSelfGlide() {
     const st = K.state;
-    if (!st.leafletMap || !st.leafletSelfGroup) return;
-    const acc = coords.accuracyMeters || st.gps.accuracy || 10;
+    if (!st.selfMarker || st.mapZooming) {
+      selfAnim.rafId = null;
+      return;
+    }
+    const dLat = selfAnim.tgtLat - selfAnim.curLat;
+    const dLng = selfAnim.tgtLng - selfAnim.curLng;
+    // Snap when within ~0.15m
+    if (Math.abs(dLat) < 0.0000015 && Math.abs(dLng) < 0.0000015) {
+      selfAnim.curLat = selfAnim.tgtLat;
+      selfAnim.curLng = selfAnim.tgtLng;
+      st.selfMarker.setLatLng([selfAnim.curLat, selfAnim.curLng]);
+      if (st.selfAccuracyCircle) st.selfAccuracyCircle.setLatLng([selfAnim.curLat, selfAnim.curLng]);
+      selfAnim.rafId = null;
+      return;
+    }
+    selfAnim.curLat += dLat * 0.28;
+    selfAnim.curLng += dLng * 0.28;
+    st.selfMarker.setLatLng([selfAnim.curLat, selfAnim.curLng]);
+    if (st.selfAccuracyCircle) st.selfAccuracyCircle.setLatLng([selfAnim.curLat, selfAnim.curLng]);
+    selfAnim.rafId = requestAnimationFrame(stepSelfGlide);
+  }
+
+  function updateSelfMarkerOnMap(coords, colorHex, isImp) {
+    const st = K.state;
+    if (!st.leafletMap || !st.leafletSelfGroup || st.mapZooming) return;
+    const acc = Math.max(4, Math.min(coords.accuracyMeters || st.gps.accuracy || 10, 120));
 
     if (!st.selfAccuracyCircle) {
       st.selfAccuracyCircle = window.L.circle([coords.lat, coords.lng], {
-        radius: Math.min(acc, 80),
+        radius: acc,
         color: colorHex,
-        weight: 1,
+        weight: 1.2,
         fillColor: colorHex,
-        fillOpacity: 0.12,
+        fillOpacity: 0.13,
+        interactive: false,
       }).addTo(st.leafletSelfGroup);
     } else {
-      st.selfAccuracyCircle.setLatLng([coords.lat, coords.lng]);
-      st.selfAccuracyCircle.setRadius(Math.min(acc, 80));
+      st.selfAccuracyCircle.setRadius(acc);
       st.selfAccuracyCircle.setStyle({ color: colorHex, fillColor: colorHex });
     }
 
     const colorKey = colorHex + (isImp ? "_1" : "_0");
     if (!st.selfMarker) {
+      selfAnim.curLat = coords.lat;
+      selfAnim.curLng = coords.lng;
+      selfAnim.tgtLat = coords.lat;
+      selfAnim.tgtLng = coords.lng;
       st.selfMarker = window.L.marker([coords.lat, coords.lng], {
         icon: buildSelfMarkerIcon(colorHex, isImp, st.gps.heading),
         zIndexOffset: 1000,
@@ -185,12 +318,56 @@ window.Kameen = window.Kameen || {};
       }).addTo(st.leafletSelfGroup);
       st.selfMarkerColorKey = colorKey;
     } else {
-      st.selfMarker.setLatLng([coords.lat, coords.lng]);
+      const jumpDist = K.Geo.distanceMeters(
+        { lat: selfAnim.curLat ?? coords.lat, lng: selfAnim.curLng ?? coords.lng },
+        coords
+      );
+      selfAnim.tgtLat = coords.lat;
+      selfAnim.tgtLng = coords.lng;
+      // Instant snap for large jumps (>60m, e.g. initial GPS lock or teleport), smooth glide for walking!
+      if (jumpDist > 60 || selfAnim.curLat === null) {
+        selfAnim.curLat = coords.lat;
+        selfAnim.curLng = coords.lng;
+        st.selfMarker.setLatLng([coords.lat, coords.lng]);
+        st.selfAccuracyCircle.setLatLng([coords.lat, coords.lng]);
+      } else if (!selfAnim.rafId) {
+        selfAnim.rafId = requestAnimationFrame(stepSelfGlide);
+      }
+
       if (st.selfMarkerColorKey !== colorKey) {
         st.selfMarker.setIcon(buildSelfMarkerIcon(colorHex, isImp, st.gps.heading));
         st.selfMarkerColorKey = colorKey;
       } else {
         updateHeadingVisualOnly();
+      }
+    }
+  }
+
+  // Called IMMEDIATELY on every GPS watchPosition event for zero-lag movement!
+  function setSelfLiveCoords(coords, shouldPanIfFollowing = true) {
+    const st = K.state;
+    if (st.mapStyle === "radar" || typeof window.L === "undefined") {
+      if (st.route === "game" || st.route === "simulation" || st.route === "create") renderFallbackRadar();
+      return;
+    }
+    if (!st.leafletMap || st.mapZooming) return;
+
+    let colorHex = "#00D4FF";
+    let isImp = false;
+    if (st.engine && (st.route === "game" || st.route === "simulation")) {
+      const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+      isImp = vis.self.role === "IMPOSTER";
+      colorHex = !vis.self.alive ? "#64748B" : (isImp ? "#FF2E54" : "#00D4FF");
+    }
+
+    updateSelfMarkerOnMap(coords, colorHex, isImp);
+
+    // Smoothly follow the user's walking movement (Google Maps / HideZone Follow Mode)
+    if (shouldPanIfFollowing && st.mapFollowMe && (st.route === "game" || st.route === "simulation")) {
+      const mapCenter = st.leafletMap.getCenter();
+      const driftM = K.Geo.distanceMeters({ lat: mapCenter.lat, lng: mapCenter.lng }, coords);
+      if (driftM >= 3) {
+        st.leafletMap.panTo([coords.lat, coords.lng], { animate: true, duration: 0.35 });
       }
     }
   }
@@ -251,21 +428,17 @@ window.Kameen = window.Kameen || {};
             id: "osm-" + el.id,
             name: displayName,
             category: isStreet ? "street" : "landmark",
-            lat,
-            lng,
-            isReal: true,
+            lat, lng, isReal: true,
           };
           if (isStreet) streets.push(item);
           else landmarks.push(item);
         }
 
-        // Prioritize real landmarks (mosques, shops, cafes, parks) first, then fill with real street names
         realPois = [...landmarks.slice(0, 14), ...streets.slice(0, 8)].slice(0, 18);
         if (realPois.length >= 2) break;
       } catch {}
     }
 
-    // Secondary backup: Nominatim reverse geocode for the exact street/neighborhood name
     if (realPois.length < 2) {
       try {
         const ctrl = new AbortController();
@@ -284,9 +457,7 @@ window.Kameen = window.Kameen || {};
               id: "nom-center",
               name: /^(شارع|طريق|ميدان|حي)/.test(road) ? road : `شارع ${road}`,
               category: "street",
-              lat: center.lat,
-              lng: center.lng,
-              isReal: true,
+              lat: center.lat, lng: center.lng, isReal: true,
             });
           }
         }
@@ -296,16 +467,12 @@ window.Kameen = window.Kameen || {};
     if (realPois.length >= 2) {
       K.state.createForm.pois = realPois;
       K.state.createForm.poiSource = `معالم حقيقية (${realPois.length}) 🗺️`;
-      if (applyToActiveEngine && K.state.engine) {
-        K.state.engine.setPOIs(realPois);
-      }
+      if (applyToActiveEngine && K.state.engine) K.state.engine.setPOIs(realPois);
     } else if (realPois.length === 1) {
       const merged = [realPois[0], ...K.Geo.generateFallbackPOIs(center, radius).slice(0, 7)];
       K.state.createForm.pois = merged;
       K.state.createForm.poiSource = "خريطة + معالم المنطقة 📍";
-      if (applyToActiveEngine && K.state.engine) {
-        K.state.engine.setPOIs(merged);
-      }
+      if (applyToActiveEngine && K.state.engine) K.state.engine.setPOIs(merged);
     } else {
       K.state.createForm.pois = K.Geo.generateFallbackPOIs(center, radius);
       K.state.createForm.poiSource = "معالم محلية 📍";
@@ -421,30 +588,53 @@ window.Kameen = window.Kameen || {};
     };
   }
 
+  let lastRouteRendered = null;
+
   function updateLayers() {
     const st = K.state;
     if (st.mapStyle === "radar" || typeof window.L === "undefined") {
       renderFallbackRadar();
       return;
     }
-    if (!st.leafletMap || !st.leafletGroup) return;
-    const g = st.leafletGroup;
-    g.clearLayers();
+    // NEVER touch Leaflet layers while user is mid-pinch-zoom!
+    if (!st.leafletMap || !st.leafletGroup || st.mapZooming) return;
 
+    if (lastRouteRendered !== st.route) {
+      clearMapRegistry();
+      lastRouteRendered = st.route;
+    }
+
+    const g = st.leafletGroup;
+
+    // --- CREATE ZONE MODE ---
     if (st.route === "create") {
       const f = st.createForm;
-      window.L.circle([f.center.lat, f.center.lng], {
-        radius: f.radius, color: "#FF2E54", weight: 2.5, fillColor: "#6E1517", fillOpacity: 0.22,
-      }).addTo(g);
-      window.L.circleMarker([f.center.lat, f.center.lng], {
-        radius: 7, color: "#fff", weight: 2.5, fillColor: "#FF2E54", fillOpacity: 1,
-      }).bindTooltip("مركز الزون 📍").addTo(g);
-      f.pois.forEach((p) => {
-        window.L.circleMarker([p.lat, p.lng], {
-          radius: 5.5, color: "#6E1517", weight: 2, fillColor: "#F8FAFC", fillOpacity: 1,
-        }).bindTooltip(p.name).addTo(g);
-      });
-      updateSelfMarkerOnMap(st.gps.coords, "#00D4FF", false, "موقعك");
+      if (!reg.zoneCircle) {
+        reg.zoneCircle = window.L.circle([f.center.lat, f.center.lng], {
+          radius: f.radius, color: "#FF2E54", weight: 2.5, fillColor: "#6E1517", fillOpacity: 0.22, interactive: false,
+        }).addTo(g);
+      } else {
+        reg.zoneCircle.setLatLng([f.center.lat, f.center.lng]);
+        reg.zoneCircle.setRadius(f.radius);
+      }
+
+      if (!reg.centerPin) {
+        reg.centerPin = window.L.marker([f.center.lat, f.center.lng], {
+          icon: makePinIcon("kpin-center", 16),
+          interactive: false,
+        }).bindTooltip("مركز الزون 📍").addTo(g);
+      } else {
+        reg.centerPin.setLatLng([f.center.lat, f.center.lng]);
+      }
+
+      syncKeyedMarkers(
+        reg.createPois,
+        f.pois.map((p) => ({ key: p.id + "|" + p.name, ...p })),
+        (p) => window.L.marker([p.lat, p.lng], { icon: makePinIcon("kpin-mission", 14), interactive: true }).bindTooltip(p.name),
+        (mk, p) => mk.setLatLng([p.lat, p.lng])
+      );
+
+      updateSelfMarkerOnMap(st.gps.coords, "#00D4FF", false);
       return;
     }
 
@@ -452,79 +642,134 @@ window.Kameen = window.Kameen || {};
     const vis = st.engine.getVisibleStateForPlayer(st.user.id);
     const isSpread = vis.phase === "SPREAD";
 
-    window.L.circle([vis.zone.center.lat, vis.zone.center.lng], {
-      radius: vis.zone.currentRadiusMeters, color: "#FF2E54", weight: 2.5, fillColor: "#6E1517", fillOpacity: 0.14,
-    }).addTo(g);
+    // Zone circles (updated in-place — NEVER destroyed!)
+    if (!reg.zoneCircle) {
+      reg.zoneCircle = window.L.circle([vis.zone.center.lat, vis.zone.center.lng], {
+        radius: vis.zone.currentRadiusMeters, color: "#FF2E54", weight: 2.5, fillColor: "#6E1517", fillOpacity: 0.14, interactive: false,
+      }).addTo(g);
+    } else {
+      reg.zoneCircle.setLatLng([vis.zone.center.lat, vis.zone.center.lng]);
+      reg.zoneCircle.setRadius(vis.zone.currentRadiusMeters);
+    }
 
-    window.L.circle([vis.zone.nextCenter.lat, vis.zone.nextCenter.lng], {
-      radius: vis.zone.nextRadiusMeters, color: "#FFB020", weight: 2, dashArray: "7,7", fillOpacity: 0,
-    }).addTo(g);
+    if (!reg.nextZoneCircle) {
+      reg.nextZoneCircle = window.L.circle([vis.zone.nextCenter.lat, vis.zone.nextCenter.lng], {
+        radius: vis.zone.nextRadiusMeters, color: "#FFB020", weight: 2, dashArray: "7,7", fillOpacity: 0, interactive: false,
+      }).addTo(g);
+    } else {
+      reg.nextZoneCircle.setLatLng([vis.zone.nextCenter.lat, vis.zone.nextCenter.lng]);
+      reg.nextZoneCircle.setRadius(vis.zone.nextRadiusMeters);
+    }
 
-    if (!isSpread) {
+    if (isSpread) {
+      syncKeyedMarkers(reg.missions, [], () => null, () => {});
+      syncKeyedMarkers(reg.landmarks, [], () => null, () => {});
+      syncKeyedMarkers(reg.players, [], () => null, () => {});
+      syncKeyedMarkers(reg.bodies, [], () => null, () => {});
+      if (reg.routeLine) { g.removeLayer(reg.routeLine); reg.routeLine = null; }
+      if (reg.airdrop) { g.removeLayer(reg.airdrop); reg.airdrop = null; }
+      if (reg.decoy) { g.removeLayer(reg.decoy); reg.decoy = null; }
+    } else {
       const activeMission = vis.missions.find((m) => m.status === "in_progress");
-      vis.missions.forEach((m) => {
-        const isAct = activeMission && activeMission.id === m.id;
-        window.L.circleMarker([m.poi.lat, m.poi.lng], {
-          radius: isAct ? 9 : 6,
-          color: isAct ? "#FFB020" : "#6E1517",
-          weight: 2.5,
-          fillColor: m.status === "completed" ? "#10B981" : "#FFFFFF",
-          fillOpacity: 1,
-        }).bindTooltip(m.poi.name, { permanent: Boolean(isAct), direction: "top" }).addTo(g);
-      });
 
-      // Show subtle map pins for real nearby places so players recognize AI hints!
-      (vis.landmarks || []).forEach((lm) => {
-        const isMissionPoi = vis.missions.some((m) => m.poi.name === lm.name);
-        if (isMissionPoi) return;
-        window.L.circleMarker([lm.lat, lm.lng], {
-          radius: 4,
-          color: "rgba(0,212,255,0.65)",
-          weight: 1.5,
-          fillColor: "#0B101B",
-          fillOpacity: 0.85,
-        }).bindTooltip("📍 " + lm.name, { direction: "top" }).addTo(g);
-      });
+      // Mission Pins (GPU-anchored divIcon markers — ZERO shift on zoom!)
+      syncKeyedMarkers(
+        reg.missions,
+        vis.missions.map((m) => {
+          const isAct = Boolean(activeMission && activeMission.id === m.id);
+          return { key: `${m.id}|${m.status}|${isAct ? 1 : 0}|${m.poi.name}`, m, isAct };
+        }),
+        ({ m, isAct }) => {
+          const cls = m.status === "completed" ? "kpin-mission done" : (isAct ? "kpin-mission active" : "kpin-mission");
+          const sz = isAct ? 24 : 16;
+          const ico = m.status === "completed" ? "✓" : (isAct ? "★" : "");
+          return window.L.marker([m.poi.lat, m.poi.lng], { icon: makePinIcon(cls, sz, ico), zIndexOffset: isAct ? 400 : 200 })
+            .bindTooltip(m.poi.name, { permanent: isAct, direction: "top", offset: [0, -10] });
+        },
+        (mk, { m }) => mk.setLatLng([m.poi.lat, m.poi.lng])
+      );
 
+      // Subtle Real Map Landmarks
+      const lmItems = (vis.landmarks || [])
+        .filter((lm) => !vis.missions.some((m) => m.poi.name === lm.name))
+        .map((lm) => ({ key: lm.id + "|" + lm.name, ...lm }));
+      syncKeyedMarkers(
+        reg.landmarks,
+        lmItems,
+        (lm) => window.L.marker([lm.lat, lm.lng], { icon: makePinIcon("kpin-landmark", 10), zIndexOffset: 50 })
+          .bindTooltip("📍 " + lm.name, { direction: "top" }),
+        (mk, lm) => mk.setLatLng([lm.lat, lm.lng])
+      );
+
+      // Active Mission Route Polyline
       if (activeMission) {
-        window.L.polyline([
-          [vis.self.coords.lat, vis.self.coords.lng],
-          [activeMission.poi.lat, activeMission.poi.lng],
-        ], { color: "#FFB020", weight: 4, dashArray: "8,8" }).addTo(g);
+        const pts = [[vis.self.coords.lat, vis.self.coords.lng], [activeMission.poi.lat, activeMission.poi.lng]];
+        if (!reg.routeLine) {
+          reg.routeLine = window.L.polyline(pts, { color: "#FFB020", weight: 4, dashArray: "8,8", interactive: false }).addTo(g);
+        } else {
+          reg.routeLine.setLatLngs(pts);
+        }
+      } else if (reg.routeLine) {
+        g.removeLayer(reg.routeLine);
+        reg.routeLine = null;
       }
 
+      // Supply Drop Pin
       if (vis.activeAirdrop) {
-        window.L.circleMarker([vis.activeAirdrop.coords.lat, vis.activeAirdrop.coords.lng], {
-          radius: 12, color: "#fff", weight: 2.5, fillColor: "#FFB020", fillOpacity: 0.95,
-        }).bindTooltip("💼 شنطة إمداد (+45ن)", { permanent: true, direction: "top" }).addTo(g);
+        if (!reg.airdrop) {
+          reg.airdrop = window.L.marker([vis.activeAirdrop.coords.lat, vis.activeAirdrop.coords.lng], {
+            icon: makePinIcon("kpin-airdrop", 26, "💼"), zIndexOffset: 500,
+          }).bindTooltip("💼 إمداد (+45ن)", { permanent: true, direction: "top", offset: [0, -12] }).addTo(g);
+        } else {
+          reg.airdrop.setLatLng([vis.activeAirdrop.coords.lat, vis.activeAirdrop.coords.lng]);
+        }
+      } else if (reg.airdrop) {
+        g.removeLayer(reg.airdrop);
+        reg.airdrop = null;
       }
 
+      // Decoy Ping Pin
       if (vis.decoyPing) {
-        window.L.circleMarker([vis.decoyPing.coords.lat, vis.decoyPing.coords.lng], {
-          radius: 12, color: "#fff", weight: 2.5, fillColor: "#FF2E54", fillOpacity: 0.92,
-        }).bindTooltip("⚠️ إشارة مشبوهة!", { permanent: true, direction: "top" }).addTo(g);
+        if (!reg.decoy) {
+          reg.decoy = window.L.marker([vis.decoyPing.coords.lat, vis.decoyPing.coords.lng], {
+            icon: makePinIcon("kpin-body", 24, "!"), zIndexOffset: 550,
+          }).bindTooltip("⚠️ إشارة مشبوهة!", { permanent: true, direction: "top", offset: [0, -10] }).addTo(g);
+        } else {
+          reg.decoy.setLatLng([vis.decoyPing.coords.lat, vis.decoyPing.coords.lng]);
+        }
+      } else if (reg.decoy) {
+        g.removeLayer(reg.decoy);
+        reg.decoy = null;
       }
 
-      vis.bodies.filter((b) => !b.reported).forEach((b) => {
-        window.L.circleMarker([b.coords.lat, b.coords.lng], {
-          radius: 10, color: "#fff", weight: 2.5, fillColor: "#FF2E54", fillOpacity: 0.95,
-        }).bindTooltip("💀 جثة: " + b.victimName, { permanent: true, direction: "top" }).addTo(g);
-      });
+      // Bodies Pins
+      const bodyItems = vis.bodies.filter((b) => !b.reported).map((b) => ({ key: b.id, ...b }));
+      syncKeyedMarkers(
+        reg.bodies,
+        bodyItems,
+        (b) => window.L.marker([b.coords.lat, b.coords.lng], { icon: makePinIcon("kpin-body", 24, "💀"), zIndexOffset: 600 })
+          .bindTooltip("💀 جثة: " + b.victimName, { permanent: true, direction: "top", offset: [0, -12] }),
+        (mk, b) => mk.setLatLng([b.coords.lat, b.coords.lng])
+      );
 
-      vis.players.filter((p) => p.coords && p.alive && p.id !== vis.self.id).forEach((p) => {
-        window.L.circleMarker([p.coords.lat, p.coords.lng], {
-          radius: p.isRedBrokerBroadcast ? 11 : 7.5,
-          color: "#FFFFFF",
-          weight: 2.5,
-          fillColor: p.isRedBrokerBroadcast ? "#FF2E54" : (p.role === "IMPOSTER" ? "#FFB020" : "#00D4FF"),
-          fillOpacity: 1,
-        }).bindTooltip(p.name + (p.isRedBrokerBroadcast ? " (سمسار 🔴)" : "")).addTo(g);
-      });
+      // Other Players Pins (visible only during Radar Reveal / Broker / Ghost / Game Over)
+      const pItems = vis.players
+        .filter((p) => p.coords && p.alive && p.id !== vis.self.id)
+        .map((p) => ({ key: `${p.id}|${p.isRedBrokerBroadcast ? 1 : 0}`, ...p }));
+      syncKeyedMarkers(
+        reg.players,
+        pItems,
+        (p) => window.L.marker([p.coords.lat, p.coords.lng], {
+          icon: makePinIcon(p.isRedBrokerBroadcast ? "kpin-player broker" : "kpin-player", p.isRedBrokerBroadcast ? 22 : 17),
+          zIndexOffset: 700,
+        }).bindTooltip(p.name + (p.isRedBrokerBroadcast ? " (سمسار 🔴)" : ""), { direction: "top" }),
+        (mk, p) => mk.setLatLng([p.coords.lat, p.coords.lng])
+      );
     }
 
     const isImp = vis.self.role === "IMPOSTER";
     const selfColor = !vis.self.alive ? "#64748B" : (isImp ? "#FF2E54" : "#00D4FF");
-    updateSelfMarkerOnMap(vis.self.coords, selfColor, isImp, vis.self.alive ? "أنت هنا 📍" : "أنت (شبح 👻)");
+    updateSelfMarkerOnMap(vis.self.coords, selfColor, isImp);
   }
 
   K.Map = {
@@ -535,5 +780,6 @@ window.Kameen = window.Kameen || {};
     fetchOverpassPOIs,
     updateLayers,
     updateHeadingVisualOnly,
+    setSelfLiveCoords,
   };
 })(window.Kameen);

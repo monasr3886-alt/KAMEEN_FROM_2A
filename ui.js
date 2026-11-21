@@ -154,7 +154,7 @@ window.Kameen = window.Kameen || {};
           <button class="icon-btn" style="width:34px;height:34px;" onclick="onNav('landing')">${ICONS.back}</button>
           <div style="text-align:center;">
             <div style="font-size:13px;font-weight:900;">تحديد منطقة الكمين</div>
-            <div style="font-size:10px;color:var(--muted);font-weight:700;">اضغط ع الخريطة تحرّك الزون 📍</div>
+            <div style="font-size:10px;color:${st.gps.hasRealFix ? "var(--green)" : "var(--gold)"};font-weight:700;">${st.gps.hasRealFix ? `GPS متصل (±${st.gps.accuracy}م) • اضغط لتحريك الزون` : "📡 جاري لقط موقعك الحقيقي..."}</div>
           </div>
           <div style="width:34px;"></div>
         </div>
@@ -236,7 +236,7 @@ window.Kameen = window.Kameen || {};
     // Side Floating Circular Map FABs (Clean Native Map Look!)
     sideEl.innerHTML = `
       <button class="map-fab" title="نمط الخريطة" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
-      <button class="map-fab" title="موقعي" onclick="Kameen.Map.recenter()">📍</button>
+      <button id="follow-gps-fab" class="map-fab ${st.mapFollowMe ? "active-fab" : ""}" title="تتبع موقعي" onclick="Kameen.Map.recenter()">📍</button>
       <button class="map-fab" title="الصوت" onclick="Kameen.SFX.toggle();Kameen.UI.updateHudOnly()">${K.SFX.muted ? "🔇" : "🔊"}</button>
       ${st.route === "simulation" ? `<button class="map-fab active-fab" title="أدوات المحاكاة" onclick="onOpenModal('sim_tools')">🧪</button>` : ""}
     `;

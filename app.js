@@ -26,15 +26,16 @@ window.Kameen = window.Kameen || {};
       heading: null,          // degrees 0..359 (0=North, 90=East)
       headingSource: null,    // "compass" | "gps" | "sim"
       compassActive: false,
+      hasRealFix: false,
       status: "idle",
       error: null,
       centeredOnce: false,
       bestCenterAcc: Infinity,
       userPickedZone: false,
       watchId: null,
+      watchdogTimer: null,
+      lastFixAt: 0,
       lastSentAt: 0,
-      // Kalman-style smoothing filter state
-      filter: { lat: null, lng: null, variance: 9999, ts: 0 },
     },
     camera: { status: "idle", error: null },
     groqKey: localStorage.getItem("kameen_groq_key") || K.CONFIG.DEFAULT_GROQ_KEY,
@@ -57,9 +58,12 @@ window.Kameen = window.Kameen || {};
     joinCode: "",
     engine: null,
     isSimMode: false,
+    simUseRealGps: true,
     simSpeed: 1,
     simRunning: true,
     simDpadVisible: false,
+    mapFollowMe: true,
+    mapZooming: false,
     simTimeMs: Date.now(),
     roleRevealed: false,
     roleFlipped: false,
@@ -174,44 +178,91 @@ window.Kameen = window.Kameen || {};
     } catch {}
   }
 
-  // Accuracy-weighted Kalman-like GPS smoother (kills jitter & teleports!)
-  function applyKalmanGps(rawLat, rawLng, rawAcc, nowMs) {
-    const f = K.state.gps.filter;
-    const acc = Math.max(3, rawAcc || 20);
-    if (f.lat === null || f.ts === 0) {
-      f.lat = rawLat;
-      f.lng = rawLng;
-      f.variance = acc * acc;
-      f.ts = nowMs;
-      return { lat: f.lat, lng: f.lng, accuracyMeters: Math.round(acc) };
+  // Direct Zero-Lag Fused Location Processor (Android FLP / iOS CoreLocation already runs OS Kalman!)
+  function processGpsPosition(pos) {
+    const st = K.state;
+    const now = Date.now();
+    const rawLat = pos.coords.latitude;
+    const rawLng = pos.coords.longitude;
+    const rawAcc = Math.max(3, Math.round(pos.coords.accuracy || 20));
+    const prevAcc = st.gps.accuracy ?? 9999;
+    const prevCoords = { ...st.gps.coords };
+    const dtSec = st.gps.lastFixAt ? Math.max(0.25, (now - st.gps.lastFixAt) / 1000) : 99;
+
+    st.gps.status = "granted";
+    st.gps.error = null;
+
+    let finalLat = rawLat;
+    let finalLng = rawLng;
+
+    if (st.gps.hasRealFix) {
+      const jumpM = K.Geo.distanceMeters(prevCoords, { lat: rawLat, lng: rawLng });
+      const speedMps = jumpM / dtSec;
+
+      // 1) If new reading is MUCH more accurate (e.g. switched from 70m cell tower to 6m real GPS), SNAP IMMEDIATELY!
+      if (rawAcc <= prevAcc * 0.7 && rawAcc <= 25) {
+        finalLat = rawLat;
+        finalLng = rawLng;
+      } else {
+        // 2) Reject extreme cell-tower teleports (>25 m/s with poor accuracy)
+        if (speedMps > 25 && rawAcc > 25 && prevAcc < 20) return;
+        // 3) Reject super-coarse cell-tower bounce (>65m) when we just had a tight GPS lock (<18m)
+        if (rawAcc > 65 && prevAcc <= 18 && dtSec < 12) return;
+
+        // 4) ZERO drag when accuracy is good (<=15m)! Light blend only when noisy (>15m)
+        if (rawAcc > 15 && jumpM < 25) {
+          const alpha = 0.65;
+          finalLat = prevCoords.lat + (rawLat - prevCoords.lat) * alpha;
+          finalLng = prevCoords.lng + (rawLng - prevCoords.lng) * alpha;
+        }
+      }
     }
-    const dtSec = Math.max(0.2, (nowMs - f.ts) / 1000);
-    const jumpDist = K.Geo.distanceMeters({ lat: f.lat, lng: f.lng }, { lat: rawLat, lng: rawLng });
-    const impliedSpeed = jumpDist / dtSec;
 
-    // Reject obvious cell-tower teleports (>18 m/s = 65 km/h) if we already had a decent fix
-    if (impliedSpeed > 18 && acc > 20 && Math.sqrt(f.variance) < 25) {
-      return null;
+    const nextCoords = { lat: finalLat, lng: finalLng, accuracyMeters: rawAcc };
+    const isFirstRealFix = !st.gps.hasRealFix;
+    st.gps.hasRealFix = true;
+    st.gps.lastFixAt = now;
+    st.gps.accuracy = rawAcc;
+
+    // Heading fallback from GPS movement when phone compass isn't firing
+    if (!st.gps.compassActive) {
+      if (typeof pos.coords.heading === "number" && Number.isFinite(pos.coords.heading) && (pos.coords.speed || 0) > 0.5) {
+        applyHeading(pos.coords.heading, "gps");
+      } else if (!isFirstRealFix && K.Geo.distanceMeters(prevCoords, nextCoords) >= 1.8) {
+        applyHeading(computeBearingDeg(prevCoords, nextCoords), "gps");
+      }
     }
 
-    // Reject very noisy readings (>50m) if we received a much cleaner reading within last 12s
-    if (acc > 50 && dtSec < 12 && Math.sqrt(f.variance) < 20) {
-      return null;
+    const useRealHere = !st.isSimMode || st.simUseRealGps;
+    if (useRealHere) {
+      st.gps.coords = nextCoords;
     }
 
-    // Predict variance growth (~3 m/s walking/jogging process noise)
-    const Q = 3.0;
-    f.variance += dtSec * Q * Q;
+    // Auto-center immediately on first real GPS fix OR better fix on Create Zone screen!
+    if (isFirstRealFix || (!st.gps.userPickedZone && rawAcc + 4 < st.gps.bestCenterAcc && st.route === "create")) {
+      st.gps.bestCenterAcc = rawAcc;
+      st.createForm.center = { ...nextCoords };
+      if (st.leafletMap && useRealHere && !st.mapZooming) {
+        st.leafletMap.setView([nextCoords.lat, nextCoords.lng], 18, { animate: !isFirstRealFix });
+      }
+      if (st.route === "create") {
+        void K.Map.fetchOverpassPOIs(nextCoords, st.createForm.radius);
+      }
+      st.gps.centeredOnce = true;
+    }
 
-    // Kalman gain K blends old estimate with new reading based on accuracy^2
-    const measVar = acc * acc;
-    const gain = f.variance / (f.variance + measVar);
-    f.lat += gain * (rawLat - f.lat);
-    f.lng += gain * (rawLng - f.lng);
-    f.variance = (1 - gain) * f.variance;
-    f.ts = nowMs;
+    // IMMEDIATE 60fps smooth dot glide on the map (don't wait for 1s engine tick!)
+    if (useRealHere && (st.route === "game" || st.route === "simulation" || st.route === "create")) {
+      K.Map.setSelfLiveCoords(nextCoords, true);
+    }
 
-    return { lat: f.lat, lng: f.lng, accuracyMeters: Math.round(acc) };
+    // Push to game engine & network every 750ms for live real-time movement
+    if (st.engine && useRealHere && now - st.gps.lastSentAt >= 750) {
+      st.gps.lastSentAt = now;
+      dispatchAction("UPDATE_LOC", { coords: nextCoords });
+    }
+
+    K.UI.updateGpsStatusDOM();
   }
 
   function recalibrateGps() {
@@ -220,9 +271,11 @@ window.Kameen = window.Kameen || {};
       navigator.geolocation.clearWatch(st.gps.watchId);
       st.gps.watchId = null;
     }
-    st.gps.filter = { lat: null, lng: null, variance: 9999, ts: 0 };
+    st.gps.hasRealFix = false;
     st.gps.bestCenterAcc = Infinity;
-    K.showToast("📡 بنعيد معايرة الـ GPS على أعلى دقة...");
+    st.mapFollowMe = true;
+    st.simUseRealGps = true;
+    K.showToast("📡 بنسحب موقعك الحقيقي على أعلى دقة...");
     startRealGps();
     void startCompass(true);
   }
@@ -240,63 +293,39 @@ window.Kameen = window.Kameen || {};
     st.gps.status = "requesting";
     K.UI.updateGpsStatusDOM();
 
+    const onErr = (err) => {
+      st.gps.status = err.code === 1 ? "denied" : "idle";
+      st.gps.error = err.code === 1
+        ? "رفضت إذن الموقع — افتحه من إعدادات المتصفح واختار (دقيق)"
+        : (location.protocol !== "https:" && location.hostname !== "localhost")
+          ? "الـ GPS محتاج رابط HTTPS (جيت هاب / فيرسل بيدعمه!)"
+          : "لسه بيلقط أقمار GPS — اخرج للشارع أو البلكونة";
+      K.UI.updateGpsStatusDOM();
+    };
+
+    // Instant initial high-accuracy grab + continuous watchPosition
+    navigator.geolocation.getCurrentPosition(processGpsPosition, () => {}, {
+      enableHighAccuracy: true, maximumAge: 0, timeout: 10000,
+    });
+
     st.gps.watchId = navigator.geolocation.watchPosition(
-      (pos) => {
-        const now = Date.now();
-        const rawAcc = Math.round(pos.coords.accuracy || 25);
-        st.gps.status = "granted";
-        st.gps.error = null;
-
-        const prevCoords = { ...st.gps.coords };
-        const smoothed = applyKalmanGps(pos.coords.latitude, pos.coords.longitude, rawAcc, now);
-        if (!smoothed) {
-          // Still show current raw accuracy status if we haven't displayed one
-          if (st.gps.accuracy === null) { st.gps.accuracy = rawAcc; K.UI.updateGpsStatusDOM(); }
-          return;
-        }
-
-        st.gps.accuracy = smoothed.accuracyMeters;
-
-        // Heading fallback from GPS when compass isn't active & player moved >= 2m
-        if (!st.gps.compassActive) {
-          if (typeof pos.coords.heading === "number" && Number.isFinite(pos.coords.heading) && (pos.coords.speed || 0) > 0.6) {
-            applyHeading(pos.coords.heading, "gps");
-          } else if (st.gps.centeredOnce && K.Geo.distanceMeters(prevCoords, smoothed) >= 2.2) {
-            applyHeading(computeBearingDeg(prevCoords, smoothed), "gps");
-          }
-        }
-
-        if (!st.isSimMode) {
-          st.gps.coords = smoothed;
-        }
-
-        // Auto-center on first fix, AND refine center automatically if a much better fix arrives before user taps
-        if (!st.gps.centeredOnce || (!st.gps.userPickedZone && rawAcc + 5 < st.gps.bestCenterAcc && st.route === "create")) {
-          st.gps.bestCenterAcc = rawAcc;
-          st.createForm.center = { ...smoothed };
-          if (st.leafletMap && !st.isSimMode) st.leafletMap.setView([smoothed.lat, smoothed.lng], 18);
-          st.gps.centeredOnce = true;
-        }
-
-        if (st.engine && !st.isSimMode && now - st.gps.lastSentAt >= 1200) {
-          st.gps.lastSentAt = now;
-          dispatchAction("UPDATE_LOC", { coords: st.gps.coords });
-        }
-
-        K.UI.updateGpsStatusDOM();
-        if (st.route === "game" || st.route === "create") K.Map.updateLayers();
-      },
-      (err) => {
-        st.gps.status = err.code === 1 ? "denied" : "idle";
-        st.gps.error = err.code === 1
-          ? "رفضت إذن الموقع — افتحه من إعدادات المتصفح"
-          : (location.protocol !== "https:" && location.hostname !== "localhost")
-            ? "الـ GPS محتاج رابط HTTPS (جيت هاب / فيرسل بيدعمه!)"
-            : "لسه بيلقط إشارة GPS — اخرج لمكان مفتوح لو جوه البيت";
-        K.UI.updateGpsStatusDOM();
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
+      processGpsPosition,
+      onErr,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }
     );
+
+    // Watchdog: if Android Chrome stalls watchPosition for >7s while on map, kick fresh GPS read!
+    if (st.gps.watchdogTimer) clearInterval(st.gps.watchdogTimer);
+    st.gps.watchdogTimer = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      if (st.gps.status === "denied") return;
+      const staleMs = Date.now() - (st.gps.lastFixAt || 0);
+      if (staleMs > 7000) {
+        navigator.geolocation.getCurrentPosition(processGpsPosition, () => {}, {
+          enableHighAccuracy: true, maximumAge: 0, timeout: 9000,
+        });
+      }
+    }, 6000);
   }
 
   async function requestCameraPerm() {
@@ -325,11 +354,16 @@ window.Kameen = window.Kameen || {};
       K.Map.updateLayers();
       K.showToast("📍 تمام! مركز الزون اتحرك للمكان ده");
     } else if (st.route === "simulation" && st.engine) {
+      if (st.simUseRealGps) {
+        st.simUseRealGps = false;
+        K.showToast("🕹️ تحكم يدوي شغال — اضغط 📍 للرجوع لموقعك الحقيقي");
+      }
       const prev = st.engine.getVisibleStateForPlayer(st.user.id).self.coords;
       if (K.Geo.distanceMeters(prev, clicked) >= 1) {
         applyHeading(computeBearingDeg(prev, clicked), "sim");
       }
       st.gps.coords = clicked;
+      K.Map.setSelfLiveCoords(clicked, false);
       dispatchAction("UPDATE_LOC", { coords: clicked });
       K.Map.updateLayers();
       K.UI.updateHudOnly();
@@ -354,7 +388,8 @@ window.Kameen = window.Kameen || {};
       const c = nextRoute === "create"
         ? st.createForm.center
         : (st.engine ? st.engine.getVisibleStateForPlayer(st.user.id).self.coords : st.gps.coords);
-      K.Map.initPersistentMap(c);
+      st.mapFollowMe = true;
+      K.Map.initPersistentMap(c, true);
       K.Map.updateLayers();
       K.UI.updateHudOnly();
     } else {
@@ -800,6 +835,9 @@ window.Kameen = window.Kameen || {};
     K.SFX.play("alarm");
     const t0 = Date.now();
     st.isSimMode = false;
+    // Always sync host's latest real GPS coordinates before creating the match!
+    const hostEntry = st.lobby.players.find((p) => p.id === st.user.id);
+    if (hostEntry && st.gps.hasRealFix) hostEntry.coords = { ...st.gps.coords };
     st.engine = new K.KameenEngine({
       matchId: st.lobby.matchId, code: st.lobby.code, hostId: st.lobby.hostId,
       title: st.lobby.title, zoneCenter: st.lobby.center, zoneRadiusMeters: st.lobby.radius,
@@ -834,6 +872,7 @@ window.Kameen = window.Kameen || {};
       })),
     ];
     st.isSimMode = true;
+    st.simUseRealGps = true;
     st.simSpeed = 1;
     st.simRunning = true;
     st.simDpadVisible = false;
@@ -912,10 +951,12 @@ window.Kameen = window.Kameen || {};
   };
   window.onSimNudge = (dNorth, dEast) => {
     if (!K.state.engine) return;
+    K.state.simUseRealGps = false;
     const cur = K.state.engine.getVisibleStateForPlayer(K.state.user.id).self.coords;
     const next = K.Geo.offsetCoordinates(cur, dNorth, dEast);
     applyHeading(computeBearingDeg(cur, next), "sim");
     K.state.gps.coords = next;
+    K.Map.setSelfLiveCoords(next, false);
     dispatchAction("UPDATE_LOC", { coords: next });
   };
   window.onSimToggleRole = () => {
