@@ -3,11 +3,25 @@
 window.Kameen = window.Kameen || {};
 
 (function (K) {
-  // Persistent keyed marker registries (NEVER call clearLayers() every second!)
+  const EARTH_R = 6371000;
+
+  // Enable crisp Arabic connected RTL text inside MapLibre GL WebGL maps
+  let rtlPluginInitialized = false;
+  function ensureRtlPlugin() {
+    if (rtlPluginInitialized || typeof window.maplibregl === "undefined") return;
+    rtlPluginInitialized = true;
+    try {
+      if (typeof window.maplibregl.setRTLTextPlugin === "function") {
+        window.maplibregl.setRTLTextPlugin(
+          "https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.3.0/dist/mapbox-gl-rtl-text.js",
+          true
+        );
+      }
+    } catch {}
+  }
+
+  // Persistent keyed DOM markers registry (ZERO drift, ZERO flicker on zoom/rotate)
   const reg = {
-    zoneCircle: null,
-    nextZoneCircle: null,
-    routeLine: null,
     centerPin: null,
     createPois: new Map(),
     missions: new Map(),
@@ -18,183 +32,476 @@ window.Kameen = window.Kameen || {};
     decoy: null,
   };
 
-  // Smooth rAF animator for self dot (Google Maps-style glide without breaking Leaflet zoom!)
+  // Smooth 60fps animator for player dot + metric accuracy ring
   const selfAnim = {
     curLat: null, curLng: null,
     tgtLat: null, tgtLng: null,
+    accMeters: 10,
+    colorHex: "#00D4FF",
     rafId: null,
   };
 
-  function makePinIcon(cls, size, htmlInner = "") {
-    return window.L.divIcon({
-      className: "kpin-wrap",
-      html: `<div class="kpin ${cls}">${htmlInner}</div>`,
-      iconSize: [size, size],
-      iconAnchor: [size / 2, size / 2],
-    });
+  let styleReady = false;
+  let lastRouteRendered = null;
+  let lastBearingEaseAt = 0;
+
+  function createCircleRing(center, radiusMeters, steps = 72, clockwise = false) {
+    const r = Math.max(2, radiusMeters || 10);
+    const dLat = (r / EARTH_R) * (180 / Math.PI);
+    const cosLat = Math.max(0.05, Math.cos((center.lat * Math.PI) / 180));
+    const dLng = dLat / cosLat;
+    const coords = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = (i / steps) * Math.PI * 2;
+      const a = clockwise ? -t : t;
+      coords.push([center.lng + Math.cos(a) * dLng, center.lat + Math.sin(a) * dLat]);
+    }
+    return coords;
+  }
+
+  function emptyFC() {
+    return { type: "FeatureCollection", features: [] };
+  }
+
+  function getSatelliteStyleSpec() {
+    return {
+      version: 8,
+      sources: {
+        "esri-sat": {
+          type: "raster",
+          tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+          tileSize: 256,
+          maxzoom: 19,
+        },
+        "esri-lbl": {
+          type: "raster",
+          tiles: ["https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}"],
+          tileSize: 256,
+          maxzoom: 19,
+        },
+      },
+      layers: [
+        { id: "sat-base", type: "raster", source: "esri-sat" },
+        { id: "sat-labels", type: "raster", source: "esri-lbl", paint: { "raster-opacity": 0.9 } },
+      ],
+    };
+  }
+
+  function getStyleSpec(styleKey) {
+    if (styleKey === "street3d") return "https://tiles.openfreemap.org/styles/liberty";
+    if (styleKey === "satellite") return getSatelliteStyleSpec();
+    return "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+  }
+
+  // Dynamically extrude 3D tactical buildings on Carto Dark Matter & any vector style without crashing
+  function inject3DBuildingsIfAvailable(map) {
+    try {
+      const style = map.getStyle();
+      if (!style || !style.layers) return;
+      if (map.getLayer("kameen-3d-buildings") || map.getLayer("building-3d")) return;
+
+      const buildingLayer = style.layers.find(
+        (l) => l.source && l["source-layer"] && /building/i.test(l["source-layer"]) && l.type === "fill"
+      );
+      if (!buildingLayer) return;
+
+      const firstLabel = style.layers.find((l) => l.type === "symbol" && l.layout && l.layout["text-field"]);
+      const beforeId = firstLabel ? firstLabel.id : undefined;
+      const isDark = K.state.mapStyle === "dark3d";
+
+      map.addLayer(
+        {
+          id: "kameen-3d-buildings",
+          source: buildingLayer.source,
+          "source-layer": buildingLayer["source-layer"],
+          type: "fill-extrusion",
+          minzoom: 14.5,
+          paint: {
+            "fill-extrusion-color": isDark
+              ? ["interpolate", ["linear"], ["zoom"], 15, "#151F33", 18, "#223252"]
+              : "#CBD5E1",
+            "fill-extrusion-height": [
+              "coalesce",
+              ["get", "render_height"],
+              ["get", "height"],
+              11
+            ],
+            "fill-extrusion-base": [
+              "coalesce",
+              ["get", "render_min_height"],
+              ["get", "min_height"],
+              0
+            ],
+            "fill-extrusion-opacity": isDark ? 0.86 : 0.78,
+          },
+        },
+        beforeId
+      );
+    } catch {}
+  }
+
+  // Install WebGL GeoJSON layers: Battle Royale Storm Fog, Double Neon Zone Ring, Next Zone, Accuracy Ring, Glowing Route
+  function installGameOverlayLayers(map) {
+    try {
+      inject3DBuildingsIfAvailable(map);
+
+      if (!map.getSource("kameen-zone-src")) {
+        map.addSource("kameen-zone-src", { type: "geojson", data: emptyFC() });
+      }
+      if (!map.getSource("kameen-acc-src")) {
+        map.addSource("kameen-acc-src", { type: "geojson", data: emptyFC() });
+      }
+      if (!map.getSource("kameen-route-src")) {
+        map.addSource("kameen-route-src", { type: "geojson", data: emptyFC() });
+      }
+
+      // 1. Battle Royale Storm Fog OUTSIDE the safe zone
+      if (!map.getLayer("kameen-storm-fill")) {
+        map.addLayer({
+          id: "kameen-storm-fill",
+          type: "fill",
+          source: "kameen-zone-src",
+          filter: ["==", ["get", "kind"], "storm"],
+          paint: {
+            "fill-color": "#7F1D1D",
+            "fill-opacity": 0.34,
+          },
+        });
+      }
+
+      // 2. Soft Neon Outer Glow for Zone Boundary
+      if (!map.getLayer("kameen-zone-glow")) {
+        map.addLayer({
+          id: "kameen-zone-glow",
+          type: "line",
+          source: "kameen-zone-src",
+          filter: ["==", ["get", "kind"], "safe_border"],
+          paint: {
+            "line-color": "#FF2E54",
+            "line-width": 11,
+            "line-blur": 7,
+            "line-opacity": 0.55,
+          },
+        });
+      }
+
+      // 3. Razor-Sharp Safe Zone Core Line
+      if (!map.getLayer("kameen-zone-line")) {
+        map.addLayer({
+          id: "kameen-zone-line",
+          type: "line",
+          source: "kameen-zone-src",
+          filter: ["==", ["get", "kind"], "safe_border"],
+          paint: {
+            "line-color": "#FF2E54",
+            "line-width": 2.6,
+            "line-opacity": 0.98,
+          },
+        });
+      }
+
+      // 4. Next Shrink Zone Dashed Golden Ring
+      if (!map.getLayer("kameen-next-zone")) {
+        map.addLayer({
+          id: "kameen-next-zone",
+          type: "line",
+          source: "kameen-zone-src",
+          filter: ["==", ["get", "kind"], "next_zone"],
+          paint: {
+            "line-color": "#FFB020",
+            "line-width": 2.2,
+            "line-dasharray": [3, 3],
+            "line-opacity": 0.92,
+          },
+        });
+      }
+
+      // 5. True Metric GPS Accuracy Circle Polygon
+      if (!map.getLayer("kameen-acc-fill")) {
+        map.addLayer({
+          id: "kameen-acc-fill",
+          type: "fill",
+          source: "kameen-acc-src",
+          paint: {
+            "fill-color": ["coalesce", ["get", "color"], "#00D4FF"],
+            "fill-opacity": 0.14,
+          },
+        });
+      }
+      if (!map.getLayer("kameen-acc-line")) {
+        map.addLayer({
+          id: "kameen-acc-line",
+          type: "line",
+          source: "kameen-acc-src",
+          paint: {
+            "line-color": ["coalesce", ["get", "color"], "#00D4FF"],
+            "line-width": 1.4,
+            "line-opacity": 0.55,
+          },
+        });
+      }
+
+      // 6. Active Mission Glowing Tactical Path
+      if (!map.getLayer("kameen-route-glow")) {
+        map.addLayer({
+          id: "kameen-route-glow",
+          type: "line",
+          source: "kameen-route-src",
+          paint: {
+            "line-color": "#FFB020",
+            "line-width": 9,
+            "line-blur": 5,
+            "line-opacity": 0.42,
+          },
+        });
+      }
+      if (!map.getLayer("kameen-route-line")) {
+        map.addLayer({
+          id: "kameen-route-line",
+          type: "line",
+          source: "kameen-route-src",
+          paint: {
+            "line-color": "#FDE68A",
+            "line-width": 3.2,
+            "line-dasharray": [2.2, 2],
+            "line-opacity": 0.98,
+          },
+        });
+      }
+
+      styleReady = true;
+      updateLayers();
+    } catch {}
+  }
+
+  function makePinElement(cls, innerHtml, labelText, labelTone = "") {
+    const wrap = document.createElement("div");
+    wrap.className = "gl-pin-wrap";
+    if (labelText) {
+      const lbl = document.createElement("div");
+      lbl.className = "gl-pin-label" + (labelTone ? " " + labelTone : "");
+      lbl.textContent = labelText;
+      wrap.appendChild(lbl);
+    }
+    const dot = document.createElement("div");
+    dot.className = "kpin " + cls;
+    dot.innerHTML = innerHtml || "";
+    wrap.appendChild(dot);
+    return wrap;
   }
 
   function clearMapRegistry() {
-    const st = K.state;
-    const g = st.leafletGroup;
-    if (!g) return;
-    if (reg.zoneCircle) { g.removeLayer(reg.zoneCircle); reg.zoneCircle = null; }
-    if (reg.nextZoneCircle) { g.removeLayer(reg.nextZoneCircle); reg.nextZoneCircle = null; }
-    if (reg.routeLine) { g.removeLayer(reg.routeLine); reg.routeLine = null; }
-    if (reg.centerPin) { g.removeLayer(reg.centerPin); reg.centerPin = null; }
-    if (reg.airdrop) { g.removeLayer(reg.airdrop); reg.airdrop = null; }
-    if (reg.decoy) { g.removeLayer(reg.decoy); reg.decoy = null; }
+    if (reg.centerPin) { reg.centerPin.remove(); reg.centerPin = null; }
+    if (reg.airdrop) { reg.airdrop.remove(); reg.airdrop = null; }
+    if (reg.decoy) { reg.decoy.remove(); reg.decoy = null; }
     for (const m of [reg.createPois, reg.missions, reg.landmarks, reg.players, reg.bodies]) {
-      for (const layer of m.values()) g.removeLayer(layer);
+      for (const mk of m.values()) mk.remove();
       m.clear();
     }
   }
 
   function syncKeyedMarkers(mapObj, items, buildFn, updateFn) {
-    const g = K.state.leafletGroup;
-    if (!g) return;
+    const map = K.state.glMap;
+    if (!map) return;
     const activeKeys = new Set();
     for (const item of items) {
       activeKeys.add(item.key);
       const existing = mapObj.get(item.key);
       if (!existing) {
         const mk = buildFn(item);
-        mk.addTo(g);
-        mapObj.set(item.key, mk);
+        if (mk) {
+          mk.addTo(map);
+          mapObj.set(item.key, mk);
+        }
       } else {
         updateFn(existing, item);
       }
     }
     for (const [k, mk] of mapObj.entries()) {
       if (!activeKeys.has(k)) {
-        g.removeLayer(mk);
+        mk.remove();
         mapObj.delete(k);
       }
     }
   }
 
+  function updateAccuracyGeoJson(lat, lng, accMeters, colorHex) {
+    const map = K.state.glMap;
+    if (!map || !styleReady) return;
+    const src = map.getSource("kameen-acc-src");
+    if (!src) return;
+    const ring = createCircleRing({ lat, lng }, Math.max(4, Math.min(accMeters || 10, 120)), 48, false);
+    src.setData({
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        properties: { color: colorHex },
+        geometry: { type: "Polygon", coordinates: [ring] },
+      }],
+    });
+  }
+
   function applyTileLayer() {
     const st = K.state;
     const radarEl = document.getElementById("fallback-radar");
-    const leafEl = document.getElementById("persistent-leaflet-map");
-    if (!radarEl || !leafEl) return;
+    const glEl = document.getElementById("persistent-gl-map");
+    if (!radarEl || !glEl) return;
 
-    if (st.mapStyle === "radar" || typeof window.L === "undefined") {
+    if (st.mapStyle === "radar" || typeof window.maplibregl === "undefined") {
       radarEl.classList.remove("hidden");
-      leafEl.classList.add("hidden");
+      glEl.classList.add("hidden");
       renderFallbackRadar();
       return;
     }
 
     radarEl.classList.add("hidden");
-    leafEl.classList.remove("hidden");
-    if (!st.leafletMap) return;
+    glEl.classList.remove("hidden");
+    if (!st.glMap) return;
 
-    if (st.baseTileLayer) st.leafletMap.removeLayer(st.baseTileLayer);
-    if (st.labelsTileLayer) st.leafletMap.removeLayer(st.labelsTileLayer);
-
-    let url = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
-    if (st.mapStyle === "satellite") {
-      url = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-    } else if (st.mapStyle === "street") {
-      url = "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
-    }
-
-    st.tileErrorCount = 0;
-    st.baseTileLayer = window.L.tileLayer(url, {
-      maxNativeZoom: 19,
-      maxZoom: 20,
-      keepBuffer: 4,
-    }).addTo(st.leafletMap);
-
-    st.baseTileLayer.on("tileerror", () => {
-      st.tileErrorCount += 1;
-      if (st.tileErrorCount >= 6 && st.mapStyle !== "radar") {
-        st.mapStyle = "radar";
-        applyTileLayer();
-        K.showToast("📡 النت تقيل شوية — حولنا على الرادار التكتيكي!");
-      }
-    });
-
-    if (st.mapStyle === "satellite") {
-      st.labelsTileLayer = window.L.tileLayer(
-        "https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-        { maxNativeZoom: 19, maxZoom: 20, opacity: 0.85 }
-      ).addTo(st.leafletMap);
-    }
+    styleReady = false;
+    st.glMap.setStyle(getStyleSpec(st.mapStyle));
   }
 
   function cycleStyle() {
-    const order = ["dark", "satellite", "street", "radar"];
-    K.state.mapStyle = order[(order.indexOf(K.state.mapStyle) + 1) % order.length];
+    const order = ["dark3d", "street3d", "satellite", "radar"];
+    const idx = order.indexOf(K.state.mapStyle);
+    K.state.mapStyle = order[(idx + 1) % order.length];
     K.SFX.play("click");
     applyTileLayer();
-    updateLayers();
+    K.UI.updateHudOnly();
+  }
+
+  function toggle3D() {
+    const st = K.state;
+    st.map3D = !st.map3D;
+    K.SFX.play("click");
+    if (st.glMap) {
+      st.glMap.easeTo({ pitch: st.map3D ? 52 : 0, duration: 420 });
+    }
+    K.UI.updateHudOnly();
+  }
+
+  function toggleHeadingUp() {
+    const st = K.state;
+    st.mapRotateWithMe = !st.mapRotateWithMe;
+    K.SFX.play("click");
+    if (st.mapRotateWithMe) {
+      st.mapFollowMe = true;
+      void K.App.startCompass(true);
+      if (st.glMap && typeof st.gps.heading === "number" && Number.isFinite(st.gps.heading)) {
+        st.glMap.easeTo({ bearing: st.gps.heading, duration: 300 });
+      }
+      K.showToast("🧭 الخريطة بتلف معاك 360° دلوقتي!");
+    } else {
+      if (st.glMap) st.glMap.easeTo({ bearing: 0, duration: 320 });
+      K.showToast("🧭 تم تثبيت الشمال لفوق");
+    }
     K.UI.updateHudOnly();
   }
 
   function initPersistentMap(center, forceCenter = false) {
     const st = K.state;
-    const el = document.getElementById("persistent-leaflet-map");
+    const el = document.getElementById("persistent-gl-map");
     if (!el) return;
     void el.offsetHeight;
 
-    if (typeof window.L === "undefined") {
+    if (typeof window.maplibregl === "undefined") {
       st.mapStyle = "radar";
       applyTileLayer();
       return;
     }
 
-    if (st.leafletMap) {
-      st.leafletMap.invalidateSize(true);
+    ensureRtlPlugin();
+
+    if (st.glMap) {
+      st.glMap.resize();
       if (forceCenter && center) {
-        st.leafletMap.setView([center.lat, center.lng], Math.max(st.leafletMap.getZoom(), 17), { animate: false });
+        st.glMap.jumpTo({
+          center: [center.lng, center.lat],
+          zoom: Math.max(st.glMap.getZoom(), 17.5),
+          pitch: st.map3D ? 52 : 0,
+        });
       }
       return;
     }
 
-    const map = window.L.map(el, {
-      center: [center.lat, center.lng],
-      zoom: 18,
-      minZoom: 12,
-      maxZoom: 20,
-      zoomControl: false,
-      attributionControl: false,
-      tapTolerance: 15,
-    });
+    try {
+      const map = new window.maplibregl.Map({
+        container: el,
+        style: getStyleSpec(st.mapStyle),
+        center: [center.lng, center.lat],
+        zoom: 18,
+        minZoom: 12,
+        maxZoom: 21,
+        pitch: st.map3D ? 52 : 0,
+        bearing: 0,
+        antialias: true,
+        attributionControl: false,
+      });
 
-    // Lock out layer mutations during pinch-zoom so markers NEVER shift!
-    map.on("zoomstart", () => { st.mapZooming = true; });
-    map.on("zoomend", () => {
-      st.mapZooming = false;
-      updateLayers();
-    });
+      map.on("style.load", () => {
+        installGameOverlayLayers(map);
+      });
 
-    // Dragging pauses auto-follow (exact Google Maps behavior); tapping 📍 re-locks it
-    map.on("dragstart", () => {
-      if (st.mapFollowMe) {
-        st.mapFollowMe = false;
-        const fab = document.getElementById("follow-gps-fab");
-        if (fab) fab.classList.remove("active-fab");
-      }
-    });
+      map.on("error", (ev) => {
+        // Auto-fallback smoothly if style server fails completely
+        if (!styleReady && ev && ev.error && st.mapStyle === "street3d") {
+          st.mapStyle = "dark3d";
+          map.setStyle(getStyleSpec("dark3d"));
+        }
+      });
 
-    map.on("click", (e) => {
-      if (st.mapZooming) return;
-      K.App.handleMapTap({ lat: e.latlng.lat, lng: e.latlng.lng, accuracyMeters: 5 });
-    });
+      map.on("rotate", () => {
+        updateHeadingVisualOnly();
+      });
 
-    st.leafletGroup = window.L.layerGroup().addTo(map);
-    st.leafletSelfGroup = window.L.layerGroup().addTo(map);
-    st.leafletMap = map;
-    applyTileLayer();
-    setTimeout(() => map.invalidateSize(true), 180);
+      map.on("dragstart", (e) => {
+        if (e && e.originalEvent && st.mapFollowMe) {
+          st.mapFollowMe = false;
+          const fab = document.getElementById("follow-gps-fab");
+          if (fab) fab.classList.remove("active-fab");
+        }
+      });
+
+      map.on("rotatestart", (e) => {
+        if (e && e.originalEvent && st.mapRotateWithMe) {
+          st.mapRotateWithMe = false;
+          const fab = document.getElementById("compass-rot-fab");
+          if (fab) fab.classList.remove("active-fab");
+        }
+      });
+
+      map.on("click", (e) => {
+        K.App.handleMapTap({ lat: e.lngLat.lat, lng: e.lngLat.lng, accuracyMeters: 5 });
+      });
+
+      st.glMap = map;
+      setTimeout(() => map.resize(), 180);
+    } catch {
+      st.mapStyle = "radar";
+      applyTileLayer();
+    }
+  }
+
+  function resize() {
+    if (K.state.glMap) K.state.glMap.resize();
+  }
+
+  function flyTo(coords, zoom = 18.2, animate = true) {
+    const st = K.state;
+    if (!st.glMap || !coords) return;
+    const opts = {
+      center: [coords.lng, coords.lat],
+      zoom: Math.max(st.glMap.getZoom(), zoom),
+      pitch: st.map3D ? 52 : 0,
+    };
+    if (animate) st.glMap.easeTo({ ...opts, duration: 500 });
+    else st.glMap.jumpTo(opts);
   }
 
   function recenter() {
     const st = K.state;
     st.mapFollowMe = true;
-    // In simulation mode, tapping 📍 also re-enables real live GPS if available
     if (st.route === "simulation" && st.gps.hasRealFix) {
       st.simUseRealGps = true;
       K.showToast("📍 الكاميرا والـ GPS الحقيقي شغالين مع حركتك!");
@@ -202,41 +509,39 @@ window.Kameen = window.Kameen || {};
     const c = st.route === "create"
       ? (st.gps.hasRealFix ? st.gps.coords : st.createForm.center)
       : (st.engine ? st.engine.getVisibleStateForPlayer(st.user.id).self.coords : st.gps.coords);
-    if (st.leafletMap) {
-      st.leafletMap.invalidateSize(true);
-      st.leafletMap.setView([c.lat, c.lng], Math.max(st.leafletMap.getZoom(), 18), { animate: true });
+    if (st.glMap) {
+      st.glMap.resize();
+      st.glMap.easeTo({
+        center: [c.lng, c.lat],
+        zoom: Math.max(st.glMap.getZoom(), 18.2),
+        pitch: st.map3D ? 52 : 0,
+        bearing: st.mapRotateWithMe && typeof st.gps.heading === "number" ? st.gps.heading : st.glMap.getBearing(),
+        duration: 420,
+      });
     }
     const fab = document.getElementById("follow-gps-fab");
     if (fab) fab.classList.add("active-fab");
   }
 
-  function buildSelfMarkerIcon(colorHex, isImp, headingDeg) {
-    const hasHeading = typeof headingDeg === "number" && Number.isFinite(headingDeg);
-    const deg = hasHeading ? Math.round(headingDeg) : 0;
-    const coneOpacity = hasHeading ? 1 : 0;
+  function buildSelfMarkerElement(colorHex, isImp, relDeg, hasHeading) {
+    const wrap = document.createElement("div");
+    wrap.className = "self-marker-box";
     const gradId = isImp ? "coneGradImp" : "coneGradInv";
-    const html = `
-      <div class="self-marker-box">
-        <svg class="self-heading-cone" id="live-heading-cone" viewBox="0 0 68 68" width="68" height="68"
-          style="opacity:${coneOpacity};transform:rotate(${deg}deg);">
-          <defs>
-            <radialGradient id="${gradId}" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="${colorHex}" stop-opacity="0.72" />
-              <stop offset="100%" stop-color="${colorHex}" stop-opacity="0" />
-            </radialGradient>
-          </defs>
-          <path d="M 34 34 L 15 5 A 34 34 0 0 1 53 5 Z" fill="url(#${gradId})" />
-          <polygon points="34,7 29,17 39,17" fill="#FFFFFF" opacity="0.95" />
-        </svg>
-        <div class="self-core-dot pulse-gps ${isImp ? "imposter" : ""}" style="background:${colorHex};"></div>
-      </div>
+    wrap.innerHTML = `
+      <svg class="self-heading-cone" id="live-heading-cone" viewBox="0 0 76 76" width="76" height="76"
+        style="opacity:${hasHeading ? 1 : 0};transform:rotate(${Math.round(relDeg)}deg);">
+        <defs>
+          <radialGradient id="${gradId}" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="${colorHex}" stop-opacity="0.78" />
+            <stop offset="100%" stop-color="${colorHex}" stop-opacity="0" />
+          </radialGradient>
+        </defs>
+        <path d="M 38 38 L 16 4 A 38 38 0 0 1 60 4 Z" fill="url(#${gradId})" />
+        <polygon points="38,7 32,18 44,18" fill="#FFFFFF" opacity="0.96" />
+      </svg>
+      <div class="self-core-dot pulse-gps ${isImp ? "imposter" : ""}" style="background:${colorHex};"></div>
     `;
-    return window.L.divIcon({
-      className: "self-marker-wrap",
-      html,
-      iconSize: [68, 68],
-      iconAnchor: [34, 34],
-    });
+    return wrap;
   }
 
   function updateHeadingVisualOnly() {
@@ -244,10 +549,20 @@ window.Kameen = window.Kameen || {};
     const deg = st.gps.heading;
     if (typeof deg !== "number" || !Number.isFinite(deg)) return;
 
+    const mapBearing = st.glMap ? st.glMap.getBearing() : 0;
+    const relDeg = ((deg - mapBearing) % 360 + 360) % 360;
+
+    // In 360° Heading-Up mode, smoothly rotate the entire 3D map with the player!
+    const now = Date.now();
+    if (st.glMap && st.mapRotateWithMe && now - lastBearingEaseAt >= 130) {
+      lastBearingEaseAt = now;
+      st.glMap.easeTo({ bearing: deg, duration: 180, easing: (t) => t });
+    }
+
     const cone = document.getElementById("live-heading-cone");
     if (cone) {
       cone.style.opacity = "1";
-      cone.style.transform = `rotate(${Math.round(deg)}deg)`;
+      cone.style.transform = `rotate(${Math.round(relDeg)}deg)`;
     }
     const radarCone = document.getElementById("radar-heading-cone");
     if (radarCone) {
@@ -264,59 +579,50 @@ window.Kameen = window.Kameen || {};
 
   function stepSelfGlide() {
     const st = K.state;
-    if (!st.selfMarker || st.mapZooming) {
+    if (!st.selfMarker || !st.glMap) {
       selfAnim.rafId = null;
       return;
     }
     const dLat = selfAnim.tgtLat - selfAnim.curLat;
     const dLng = selfAnim.tgtLng - selfAnim.curLng;
-    // Snap when within ~0.15m
-    if (Math.abs(dLat) < 0.0000015 && Math.abs(dLng) < 0.0000015) {
+    if (Math.abs(dLat) < 0.0000012 && Math.abs(dLng) < 0.0000012) {
       selfAnim.curLat = selfAnim.tgtLat;
       selfAnim.curLng = selfAnim.tgtLng;
-      st.selfMarker.setLatLng([selfAnim.curLat, selfAnim.curLng]);
-      if (st.selfAccuracyCircle) st.selfAccuracyCircle.setLatLng([selfAnim.curLat, selfAnim.curLng]);
+      st.selfMarker.setLngLat([selfAnim.curLng, selfAnim.curLat]);
+      updateAccuracyGeoJson(selfAnim.curLat, selfAnim.curLng, selfAnim.accMeters, selfAnim.colorHex);
       selfAnim.rafId = null;
       return;
     }
     selfAnim.curLat += dLat * 0.28;
     selfAnim.curLng += dLng * 0.28;
-    st.selfMarker.setLatLng([selfAnim.curLat, selfAnim.curLng]);
-    if (st.selfAccuracyCircle) st.selfAccuracyCircle.setLatLng([selfAnim.curLat, selfAnim.curLng]);
+    st.selfMarker.setLngLat([selfAnim.curLng, selfAnim.curLat]);
+    updateAccuracyGeoJson(selfAnim.curLat, selfAnim.curLng, selfAnim.accMeters, selfAnim.colorHex);
     selfAnim.rafId = requestAnimationFrame(stepSelfGlide);
   }
 
   function updateSelfMarkerOnMap(coords, colorHex, isImp) {
     const st = K.state;
-    if (!st.leafletMap || !st.leafletSelfGroup || st.mapZooming) return;
-    const acc = Math.max(4, Math.min(coords.accuracyMeters || st.gps.accuracy || 10, 120));
-
-    if (!st.selfAccuracyCircle) {
-      st.selfAccuracyCircle = window.L.circle([coords.lat, coords.lng], {
-        radius: acc,
-        color: colorHex,
-        weight: 1.2,
-        fillColor: colorHex,
-        fillOpacity: 0.13,
-        interactive: false,
-      }).addTo(st.leafletSelfGroup);
-    } else {
-      st.selfAccuracyCircle.setRadius(acc);
-      st.selfAccuracyCircle.setStyle({ color: colorHex, fillColor: colorHex });
-    }
+    if (!st.glMap) return;
+    const acc = Math.max(3, Math.min(coords.accuracyMeters || st.gps.accuracy || 10, 120));
+    selfAnim.accMeters = acc;
+    selfAnim.colorHex = colorHex;
 
     const colorKey = colorHex + (isImp ? "_1" : "_0");
-    if (!st.selfMarker) {
+    const hasHeading = typeof st.gps.heading === "number" && Number.isFinite(st.gps.heading);
+    const relDeg = hasHeading ? (st.gps.heading - st.glMap.getBearing()) : 0;
+
+    if (!st.selfMarker || st.selfMarkerColorKey !== colorKey) {
+      if (st.selfMarker) st.selfMarker.remove();
       selfAnim.curLat = coords.lat;
       selfAnim.curLng = coords.lng;
       selfAnim.tgtLat = coords.lat;
       selfAnim.tgtLng = coords.lng;
-      st.selfMarker = window.L.marker([coords.lat, coords.lng], {
-        icon: buildSelfMarkerIcon(colorHex, isImp, st.gps.heading),
-        zIndexOffset: 1000,
-        interactive: false,
-      }).addTo(st.leafletSelfGroup);
+      const el = buildSelfMarkerElement(colorHex, isImp, relDeg, hasHeading);
+      st.selfMarker = new window.maplibregl.Marker({ element: el, anchor: "center" })
+        .setLngLat([coords.lng, coords.lat])
+        .addTo(st.glMap);
       st.selfMarkerColorKey = colorKey;
+      updateAccuracyGeoJson(coords.lat, coords.lng, acc, colorHex);
     } else {
       const jumpDist = K.Geo.distanceMeters(
         { lat: selfAnim.curLat ?? coords.lat, lng: selfAnim.curLng ?? coords.lng },
@@ -324,33 +630,25 @@ window.Kameen = window.Kameen || {};
       );
       selfAnim.tgtLat = coords.lat;
       selfAnim.tgtLng = coords.lng;
-      // Instant snap for large jumps (>60m, e.g. initial GPS lock or teleport), smooth glide for walking!
-      if (jumpDist > 60 || selfAnim.curLat === null) {
+      if (jumpDist > 55 || selfAnim.curLat === null) {
         selfAnim.curLat = coords.lat;
         selfAnim.curLng = coords.lng;
-        st.selfMarker.setLatLng([coords.lat, coords.lng]);
-        st.selfAccuracyCircle.setLatLng([coords.lat, coords.lng]);
+        st.selfMarker.setLngLat([coords.lng, coords.lat]);
+        updateAccuracyGeoJson(coords.lat, coords.lng, acc, colorHex);
       } else if (!selfAnim.rafId) {
         selfAnim.rafId = requestAnimationFrame(stepSelfGlide);
       }
-
-      if (st.selfMarkerColorKey !== colorKey) {
-        st.selfMarker.setIcon(buildSelfMarkerIcon(colorHex, isImp, st.gps.heading));
-        st.selfMarkerColorKey = colorKey;
-      } else {
-        updateHeadingVisualOnly();
-      }
+      updateHeadingVisualOnly();
     }
   }
 
-  // Called IMMEDIATELY on every GPS watchPosition event for zero-lag movement!
   function setSelfLiveCoords(coords, shouldPanIfFollowing = true) {
     const st = K.state;
-    if (st.mapStyle === "radar" || typeof window.L === "undefined") {
+    if (st.mapStyle === "radar" || typeof window.maplibregl === "undefined") {
       if (st.route === "game" || st.route === "simulation" || st.route === "create") renderFallbackRadar();
       return;
     }
-    if (!st.leafletMap || st.mapZooming) return;
+    if (!st.glMap) return;
 
     let colorHex = "#00D4FF";
     let isImp = false;
@@ -362,12 +660,14 @@ window.Kameen = window.Kameen || {};
 
     updateSelfMarkerOnMap(coords, colorHex, isImp);
 
-    // Smoothly follow the user's walking movement (Google Maps / HideZone Follow Mode)
     if (shouldPanIfFollowing && st.mapFollowMe && (st.route === "game" || st.route === "simulation")) {
-      const mapCenter = st.leafletMap.getCenter();
-      const driftM = K.Geo.distanceMeters({ lat: mapCenter.lat, lng: mapCenter.lng }, coords);
-      if (driftM >= 3) {
-        st.leafletMap.panTo([coords.lat, coords.lng], { animate: true, duration: 0.35 });
+      const c = st.glMap.getCenter();
+      const driftM = K.Geo.distanceMeters({ lat: c.lat, lng: c.lng }, coords);
+      if (driftM >= 2.5) {
+        st.glMap.easeTo({
+          center: [coords.lng, coords.lat],
+          duration: 340,
+        });
       }
     }
   }
@@ -588,50 +888,98 @@ window.Kameen = window.Kameen || {};
     };
   }
 
-  let lastRouteRendered = null;
+  function setZoneGeoJson(center, radiusMeters, nextCenter = null, nextRadiusMeters = null) {
+    const map = K.state.glMap;
+    if (!map || !styleReady) return;
+    const src = map.getSource("kameen-zone-src");
+    if (!src) return;
+
+    const worldOuter = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
+    const holeCW = createCircleRing(center, radiusMeters, 72, true);
+    const borderCCW = createCircleRing(center, radiusMeters, 72, false);
+
+    const features = [
+      {
+        type: "Feature",
+        properties: { kind: "storm" },
+        geometry: { type: "Polygon", coordinates: [worldOuter, holeCW] },
+      },
+      {
+        type: "Feature",
+        properties: { kind: "safe_border" },
+        geometry: { type: "LineString", coordinates: borderCCW },
+      },
+    ];
+
+    if (nextCenter && nextRadiusMeters) {
+      features.push({
+        type: "Feature",
+        properties: { kind: "next_zone" },
+        geometry: { type: "LineString", coordinates: createCircleRing(nextCenter, nextRadiusMeters, 64, false) },
+      });
+    }
+
+    src.setData({ type: "FeatureCollection", features });
+  }
+
+  function setRouteGeoJson(fromCoords, toCoords) {
+    const map = K.state.glMap;
+    if (!map || !styleReady) return;
+    const src = map.getSource("kameen-route-src");
+    if (!src) return;
+    if (!fromCoords || !toCoords) {
+      src.setData(emptyFC());
+      return;
+    }
+    src.setData({
+      type: "FeatureCollection",
+      features: [{
+        type: "Feature",
+        properties: {},
+        geometry: {
+          type: "LineString",
+          coordinates: [[fromCoords.lng, fromCoords.lat], [toCoords.lng, toCoords.lat]],
+        },
+      }],
+    });
+  }
 
   function updateLayers() {
     const st = K.state;
-    if (st.mapStyle === "radar" || typeof window.L === "undefined") {
+    if (st.mapStyle === "radar" || typeof window.maplibregl === "undefined") {
       renderFallbackRadar();
       return;
     }
-    // NEVER touch Leaflet layers while user is mid-pinch-zoom!
-    if (!st.leafletMap || !st.leafletGroup || st.mapZooming) return;
+    if (!st.glMap) return;
 
     if (lastRouteRendered !== st.route) {
       clearMapRegistry();
       lastRouteRendered = st.route;
     }
 
-    const g = st.leafletGroup;
-
     // --- CREATE ZONE MODE ---
     if (st.route === "create") {
       const f = st.createForm;
-      if (!reg.zoneCircle) {
-        reg.zoneCircle = window.L.circle([f.center.lat, f.center.lng], {
-          radius: f.radius, color: "#FF2E54", weight: 2.5, fillColor: "#6E1517", fillOpacity: 0.22, interactive: false,
-        }).addTo(g);
-      } else {
-        reg.zoneCircle.setLatLng([f.center.lat, f.center.lng]);
-        reg.zoneCircle.setRadius(f.radius);
-      }
+      setZoneGeoJson(f.center, f.radius, null, null);
+      setRouteGeoJson(null, null);
 
       if (!reg.centerPin) {
-        reg.centerPin = window.L.marker([f.center.lat, f.center.lng], {
-          icon: makePinIcon("kpin-center", 16),
-          interactive: false,
-        }).bindTooltip("مركز الزون 📍").addTo(g);
+        reg.centerPin = new window.maplibregl.Marker({
+          element: makePinElement("kpin-center", "", "مركز الزون 📍", "red"),
+          anchor: "bottom",
+        }).setLngLat([f.center.lng, f.center.lat]).addTo(st.glMap);
       } else {
-        reg.centerPin.setLatLng([f.center.lat, f.center.lng]);
+        reg.centerPin.setLngLat([f.center.lng, f.center.lat]);
       }
 
       syncKeyedMarkers(
         reg.createPois,
-        f.pois.map((p) => ({ key: p.id + "|" + p.name, ...p })),
-        (p) => window.L.marker([p.lat, p.lng], { icon: makePinIcon("kpin-mission", 14), interactive: true }).bindTooltip(p.name),
-        (mk, p) => mk.setLatLng([p.lat, p.lng])
+        f.pois.slice(0, 12).map((p) => ({ key: p.id + "|" + p.name, ...p })),
+        (p) => new window.maplibregl.Marker({
+          element: makePinElement("kpin-mission", "", p.name),
+          anchor: "bottom",
+        }).setLngLat([p.lng, p.lat]),
+        (mk, p) => mk.setLngLat([p.lng, p.lat])
       );
 
       updateSelfMarkerOnMap(st.gps.coords, "#00D4FF", false);
@@ -642,37 +990,19 @@ window.Kameen = window.Kameen || {};
     const vis = st.engine.getVisibleStateForPlayer(st.user.id);
     const isSpread = vis.phase === "SPREAD";
 
-    // Zone circles (updated in-place — NEVER destroyed!)
-    if (!reg.zoneCircle) {
-      reg.zoneCircle = window.L.circle([vis.zone.center.lat, vis.zone.center.lng], {
-        radius: vis.zone.currentRadiusMeters, color: "#FF2E54", weight: 2.5, fillColor: "#6E1517", fillOpacity: 0.14, interactive: false,
-      }).addTo(g);
-    } else {
-      reg.zoneCircle.setLatLng([vis.zone.center.lat, vis.zone.center.lng]);
-      reg.zoneCircle.setRadius(vis.zone.currentRadiusMeters);
-    }
-
-    if (!reg.nextZoneCircle) {
-      reg.nextZoneCircle = window.L.circle([vis.zone.nextCenter.lat, vis.zone.nextCenter.lng], {
-        radius: vis.zone.nextRadiusMeters, color: "#FFB020", weight: 2, dashArray: "7,7", fillOpacity: 0, interactive: false,
-      }).addTo(g);
-    } else {
-      reg.nextZoneCircle.setLatLng([vis.zone.nextCenter.lat, vis.zone.nextCenter.lng]);
-      reg.nextZoneCircle.setRadius(vis.zone.nextRadiusMeters);
-    }
+    setZoneGeoJson(vis.zone.center, vis.zone.currentRadiusMeters, vis.zone.nextCenter, vis.zone.nextRadiusMeters);
 
     if (isSpread) {
+      setRouteGeoJson(null, null);
       syncKeyedMarkers(reg.missions, [], () => null, () => {});
       syncKeyedMarkers(reg.landmarks, [], () => null, () => {});
       syncKeyedMarkers(reg.players, [], () => null, () => {});
       syncKeyedMarkers(reg.bodies, [], () => null, () => {});
-      if (reg.routeLine) { g.removeLayer(reg.routeLine); reg.routeLine = null; }
-      if (reg.airdrop) { g.removeLayer(reg.airdrop); reg.airdrop = null; }
-      if (reg.decoy) { g.removeLayer(reg.decoy); reg.decoy = null; }
+      if (reg.airdrop) { reg.airdrop.remove(); reg.airdrop = null; }
+      if (reg.decoy) { reg.decoy.remove(); reg.decoy = null; }
     } else {
       const activeMission = vis.missions.find((m) => m.status === "in_progress");
 
-      // Mission Pins (GPU-anchored divIcon markers — ZERO shift on zoom!)
       syncKeyedMarkers(
         reg.missions,
         vis.missions.map((m) => {
@@ -681,89 +1011,92 @@ window.Kameen = window.Kameen || {};
         }),
         ({ m, isAct }) => {
           const cls = m.status === "completed" ? "kpin-mission done" : (isAct ? "kpin-mission active" : "kpin-mission");
-          const sz = isAct ? 24 : 16;
           const ico = m.status === "completed" ? "✓" : (isAct ? "★" : "");
-          return window.L.marker([m.poi.lat, m.poi.lng], { icon: makePinIcon(cls, sz, ico), zIndexOffset: isAct ? 400 : 200 })
-            .bindTooltip(m.poi.name, { permanent: isAct, direction: "top", offset: [0, -10] });
+          const lbl = isAct ? m.poi.name : (m.status === "completed" ? "" : m.poi.name);
+          const tone = isAct ? "gold" : "";
+          return new window.maplibregl.Marker({
+            element: makePinElement(cls, ico, lbl, tone),
+            anchor: "bottom",
+          }).setLngLat([m.poi.lng, m.poi.lat]);
         },
-        (mk, { m }) => mk.setLatLng([m.poi.lat, m.poi.lng])
+        (mk, { m }) => mk.setLngLat([m.poi.lng, m.poi.lat])
       );
 
-      // Subtle Real Map Landmarks
       const lmItems = (vis.landmarks || [])
         .filter((lm) => !vis.missions.some((m) => m.poi.name === lm.name))
+        .slice(0, 6)
         .map((lm) => ({ key: lm.id + "|" + lm.name, ...lm }));
       syncKeyedMarkers(
         reg.landmarks,
         lmItems,
-        (lm) => window.L.marker([lm.lat, lm.lng], { icon: makePinIcon("kpin-landmark", 10), zIndexOffset: 50 })
-          .bindTooltip("📍 " + lm.name, { direction: "top" }),
-        (mk, lm) => mk.setLatLng([lm.lat, lm.lng])
+        (lm) => new window.maplibregl.Marker({
+          element: makePinElement("kpin-landmark", "", lm.name, "cyan"),
+          anchor: "bottom",
+        }).setLngLat([lm.lng, lm.lat]),
+        (mk, lm) => mk.setLngLat([lm.lng, lm.lat])
       );
 
-      // Active Mission Route Polyline
       if (activeMission) {
-        const pts = [[vis.self.coords.lat, vis.self.coords.lng], [activeMission.poi.lat, activeMission.poi.lng]];
-        if (!reg.routeLine) {
-          reg.routeLine = window.L.polyline(pts, { color: "#FFB020", weight: 4, dashArray: "8,8", interactive: false }).addTo(g);
-        } else {
-          reg.routeLine.setLatLngs(pts);
-        }
-      } else if (reg.routeLine) {
-        g.removeLayer(reg.routeLine);
-        reg.routeLine = null;
+        setRouteGeoJson(vis.self.coords, { lat: activeMission.poi.lat, lng: activeMission.poi.lng });
+      } else {
+        setRouteGeoJson(null, null);
       }
 
-      // Supply Drop Pin
       if (vis.activeAirdrop) {
         if (!reg.airdrop) {
-          reg.airdrop = window.L.marker([vis.activeAirdrop.coords.lat, vis.activeAirdrop.coords.lng], {
-            icon: makePinIcon("kpin-airdrop", 26, "💼"), zIndexOffset: 500,
-          }).bindTooltip("💼 إمداد (+45ن)", { permanent: true, direction: "top", offset: [0, -12] }).addTo(g);
+          reg.airdrop = new window.maplibregl.Marker({
+            element: makePinElement("kpin-airdrop", "💼", "شنطة إمداد (+45ن)", "gold"),
+            anchor: "bottom",
+          }).setLngLat([vis.activeAirdrop.coords.lng, vis.activeAirdrop.coords.lat]).addTo(st.glMap);
         } else {
-          reg.airdrop.setLatLng([vis.activeAirdrop.coords.lat, vis.activeAirdrop.coords.lng]);
+          reg.airdrop.setLngLat([vis.activeAirdrop.coords.lng, vis.activeAirdrop.coords.lat]);
         }
       } else if (reg.airdrop) {
-        g.removeLayer(reg.airdrop);
+        reg.airdrop.remove();
         reg.airdrop = null;
       }
 
-      // Decoy Ping Pin
       if (vis.decoyPing) {
         if (!reg.decoy) {
-          reg.decoy = window.L.marker([vis.decoyPing.coords.lat, vis.decoyPing.coords.lng], {
-            icon: makePinIcon("kpin-body", 24, "!"), zIndexOffset: 550,
-          }).bindTooltip("⚠️ إشارة مشبوهة!", { permanent: true, direction: "top", offset: [0, -10] }).addTo(g);
+          reg.decoy = new window.maplibregl.Marker({
+            element: makePinElement("kpin-body", "!", "⚠️ إشارة مشبوهة", "red"),
+            anchor: "bottom",
+          }).setLngLat([vis.decoyPing.coords.lng, vis.decoyPing.coords.lat]).addTo(st.glMap);
         } else {
-          reg.decoy.setLatLng([vis.decoyPing.coords.lat, vis.decoyPing.coords.lng]);
+          reg.decoy.setLngLat([vis.decoyPing.coords.lng, vis.decoyPing.coords.lat]);
         }
       } else if (reg.decoy) {
-        g.removeLayer(reg.decoy);
+        reg.decoy.remove();
         reg.decoy = null;
       }
 
-      // Bodies Pins
       const bodyItems = vis.bodies.filter((b) => !b.reported).map((b) => ({ key: b.id, ...b }));
       syncKeyedMarkers(
         reg.bodies,
         bodyItems,
-        (b) => window.L.marker([b.coords.lat, b.coords.lng], { icon: makePinIcon("kpin-body", 24, "💀"), zIndexOffset: 600 })
-          .bindTooltip("💀 جثة: " + b.victimName, { permanent: true, direction: "top", offset: [0, -12] }),
-        (mk, b) => mk.setLatLng([b.coords.lat, b.coords.lng])
+        (b) => new window.maplibregl.Marker({
+          element: makePinElement("kpin-body", "💀", "جثة: " + b.victimName, "red"),
+          anchor: "bottom",
+        }).setLngLat([b.coords.lng, b.coords.lat]),
+        (mk, b) => mk.setLngLat([b.coords.lng, b.coords.lat])
       );
 
-      // Other Players Pins (visible only during Radar Reveal / Broker / Ghost / Game Over)
       const pItems = vis.players
         .filter((p) => p.coords && p.alive && p.id !== vis.self.id)
         .map((p) => ({ key: `${p.id}|${p.isRedBrokerBroadcast ? 1 : 0}`, ...p }));
       syncKeyedMarkers(
         reg.players,
         pItems,
-        (p) => window.L.marker([p.coords.lat, p.coords.lng], {
-          icon: makePinIcon(p.isRedBrokerBroadcast ? "kpin-player broker" : "kpin-player", p.isRedBrokerBroadcast ? 22 : 17),
-          zIndexOffset: 700,
-        }).bindTooltip(p.name + (p.isRedBrokerBroadcast ? " (سمسار 🔴)" : ""), { direction: "top" }),
-        (mk, p) => mk.setLatLng([p.coords.lat, p.coords.lng])
+        (p) => new window.maplibregl.Marker({
+          element: makePinElement(
+            p.isRedBrokerBroadcast ? "kpin-player broker" : "kpin-player",
+            "",
+            p.name + (p.isRedBrokerBroadcast ? " 🔴" : ""),
+            p.isRedBrokerBroadcast ? "red" : "cyan"
+          ),
+          anchor: "bottom",
+        }).setLngLat([p.coords.lng, p.coords.lat]),
+        (mk, p) => mk.setLngLat([p.coords.lng, p.coords.lat])
       );
     }
 
@@ -775,7 +1108,11 @@ window.Kameen = window.Kameen || {};
   K.Map = {
     applyTileLayer,
     cycleStyle,
+    toggle3D,
+    toggleHeadingUp,
     initPersistentMap,
+    resize,
+    flyTo,
     recenter,
     fetchOverpassPOIs,
     updateLayers,

@@ -24,11 +24,13 @@ window.Kameen = window.Kameen || {};
 
   function formatGpsStatusText() {
     const st = K.state;
-    if (!st.gps.accuracy) return st.gps.error || "بيلقط GPS... 🟡";
-    const a = st.gps.accuracy;
-    if (a <= 12) return `GPS ممتاز (±${a}م) 🟢`;
-    if (a <= 28) return `GPS متوسط (±${a}م) 🟡`;
-    return `GPS ضعيف (±${a}م) 🔴`;
+    if (!st.gps.accuracy) return st.gps.error || "بيلقط أقمار GPS... 🟡";
+    const a = Number(st.gps.accuracy);
+    const lbl = a < 10 ? a.toFixed(1) : Math.round(a);
+    if (a <= 4.5) return `HyperLock فائق (±${lbl}م) 🟢`;
+    if (a <= 12) return `GPS ممتاز (±${lbl}م) 🟢`;
+    if (a <= 25) return `GPS متوسط (±${lbl}م) 🟡`;
+    return `إشارة ضعيفة (±${lbl}م — اخرج للشارع) 🔴`;
   }
 
   function updateGpsStatusDOM() {
@@ -138,7 +140,7 @@ window.Kameen = window.Kameen || {};
     const botEl = document.getElementById("map-hud-bottom");
     if (!topEl || !sideEl || !botEl) return;
 
-    const styleIcons = { dark: "🌑", satellite: "🛰️", street: "🗺️", radar: "📡" };
+    const styleIcons = { dark3d: "🌑", street3d: "🏙️", satellite: "🛰️", radar: "📡" };
     const styleIco = styleIcons[st.mapStyle] || "🗺️";
 
     renderSimDpad();
@@ -158,9 +160,19 @@ window.Kameen = window.Kameen || {};
           </div>
           <div style="width:34px;"></div>
         </div>
+        ${st.gps.anchorCalibrating ? `
+          <div class="alert-strip pulse-gold" style="background:rgba(10,14,24,0.95);border:1.5px solid var(--gold);color:#FDE68A;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span>🎯 اضغط على مكانك الحقيقي بالظبط ع الخريطة</span>
+            <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
+          </div>
+        ` : ""}
       `;
+      const cAcc = st.gps.accuracy;
+      const cAccCls = !cAcc ? "" : (cAcc <= 4.5 ? "acc-ultra" : (cAcc <= 12 ? "acc-good" : (cAcc <= 25 ? "acc-mid" : "acc-poor")));
       sideEl.innerHTML = `
-        <button class="map-fab" title="تغيير الخريطة" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
+        <button class="map-fab" title="نمط الخريطة" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
+        <button class="map-fab ${st.map3D ? "active-fab" : ""}" style="font-size:12px;font-weight:900;" title="منظور 3D" onclick="Kameen.Map.toggle3D()">${st.map3D ? "3D" : "2D"}</button>
+        <button id="gps-acc-fab" class="map-fab ${cAccCls}" style="font-size:10px;font-weight:900;" title="نظام الدقة 3م" onclick="onOpenModal('precision_hud')">${cAcc ? "±" + (cAcc < 10 ? cAcc.toFixed(1) : Math.round(cAcc)) : "📡"}</button>
         <button class="map-fab" title="موقعي" onclick="onUseMyLocationForZone()">📍</button>
       `;
       botEl.innerHTML = `
@@ -233,10 +245,16 @@ window.Kameen = window.Kameen || {};
 
     const invPct = Math.min(100, Math.round((vis.investigationDone / Math.max(1, vis.investigationGoal)) * 100));
 
-    // Side Floating Circular Map FABs (Clean Native Map Look!)
+    // Side Floating Circular Map FABs (Google Maps / PUBG 3D Controls!)
+    const gpsAcc = st.gps.accuracy;
+    const accCls = !gpsAcc ? "" : (gpsAcc <= 4.5 ? "acc-ultra" : (gpsAcc <= 12 ? "acc-good" : (gpsAcc <= 25 ? "acc-mid" : "acc-poor")));
+    const accLbl = gpsAcc ? ("±" + (gpsAcc < 10 ? Number(gpsAcc).toFixed(1) : Math.round(gpsAcc))) : "📡";
     sideEl.innerHTML = `
-      <button class="map-fab" title="نمط الخريطة" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
+      <button class="map-fab" title="نمط الخريطة (3D ليلي / شوارع / قمر)" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
+      <button class="map-fab ${st.map3D ? "active-fab" : ""}" style="font-size:12px;font-weight:900;" title="منظور 3D / 2D" onclick="Kameen.Map.toggle3D()">${st.map3D ? "3D" : "2D"}</button>
+      <button id="compass-rot-fab" class="map-fab ${st.mapRotateWithMe ? "active-fab" : ""}" title="لف الخريطة مع البوصلة 360°" onclick="Kameen.Map.toggleHeadingUp()">🧭</button>
       <button id="follow-gps-fab" class="map-fab ${st.mapFollowMe ? "active-fab" : ""}" title="تتبع موقعي" onclick="Kameen.Map.recenter()">📍</button>
+      <button id="gps-acc-fab" class="map-fab ${accCls}" style="font-size:10px;font-weight:900;" title="نظام الدقة HyperLock 3M" onclick="onOpenModal('precision_hud')">${accLbl}</button>
       <button class="map-fab" title="الصوت" onclick="Kameen.SFX.toggle();Kameen.UI.updateHudOnly()">${K.SFX.muted ? "🔇" : "🔊"}</button>
       ${st.route === "simulation" ? `<button class="map-fab active-fab" title="أدوات المحاكاة" onclick="onOpenModal('sim_tools')">🧪</button>` : ""}
     `;
@@ -298,6 +316,12 @@ window.Kameen = window.Kameen || {};
           </span>
         </div>
 
+                ${st.gps.anchorCalibrating ? `
+          <div class="alert-strip pulse-gold" style="background:rgba(10,14,24,0.95);border:1.5px solid var(--gold);color:#FDE68A;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span>🎯 اضغط على مكانك الحقيقي بالظبط ع الخريطة (إلغاء الترحيل)</span>
+            <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
+          </div>
+        ` : ""}
         ${isSpread ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--gold);color:#FDE68A;">🏃 وقت التشتيت — اختار مكانك قبل ما الصيد يبدأ!</div>` : ""}
         ${!isSpread && vis.postSpreadGraceSec > 0 ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--crimson);color:#FDA4AF;">⏳ التفنيش هيتفتح بعد ${vis.postSpreadGraceSec} ثانية — اتمشى طبيعي!</div>` : ""}
         ${vis.showdownActive ? `<div class="alert-strip" style="background:linear-gradient(90deg,#991B1B,#FF2E54,#991B1B);color:#fff;">🔥 الخاتمة السخنة! تهدئة التفنيش قلت للنص!</div>` : ""}
@@ -410,6 +434,12 @@ window.Kameen = window.Kameen || {};
         ` : ""}
       </div>
 
+              ${st.gps.anchorCalibrating ? `
+          <div class="alert-strip pulse-gold" style="background:rgba(10,14,24,0.95);border:1.5px solid var(--gold);color:#FDE68A;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+            <span>🎯 اضغط على مكانك الحقيقي بالظبط ع الخريطة (إلغاء الترحيل)</span>
+            <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
+          </div>
+        ` : ""}
       ${isSpread ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--gold);color:#FDE68A;">🏃 وقت التشتيت — اتفرقوا في الحي قبل ما الغدّار يبدأ!</div>` : ""}
       ${!isSpread && vis.postSpreadGraceSec > 0 ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--green);color:#6EE7B7;">🛡️ فترة أمان (${vis.postSpreadGraceSec}ث) — ابدأ أول مهمة ليك!</div>` : ""}
       ${vis.showdownActive ? `<div class="alert-strip" style="background:linear-gradient(90deg,#991B1B,#FF2E54,#991B1B);color:#fff;">🔥 الخاتمة السخنة! الرادار كل 45ث — اصمد أو خلّص القضية!</div>` : ""}
@@ -910,6 +940,93 @@ window.Kameen = window.Kameen || {};
     `;
   }
 
+  function buildPrecisionSheetBody() {
+    const st = K.state;
+    const t = K.Location.getTelemetry();
+    const fused = t.fusedAcc !== null ? t.fusedAcc : null;
+    const raw = t.rawAcc !== null ? t.rawAcc : null;
+
+    let pct = 15, barColor = "#FF2E54", verdict = "جاري لقط الأقمار... اخرج لمكان مفتوح للسما";
+    if (fused !== null) {
+      if (fused <= 4.5) {
+        pct = 96; barColor = "#10B981";
+        verdict = "🎯 قفل فائق (هدف 3 متر متحقق) — جاهز للعب بالملي!";
+      } else if (fused <= 10) {
+        pct = 78; barColor = "#00D4FF";
+        verdict = "✅ دقة ممتازة للشارع — اثبت 5 ثواني عشان ZUPT يقفلها أكتر!";
+      } else if (fused <= 24) {
+        pct = 50; barColor = "#FFB020";
+        verdict = "⚠️ دقة متوسطة — ابعد عن العمارات أو اضبط مكانك بالمعايرة اليدوية";
+      } else {
+        pct = 20; barColor = "#FF2E54";
+        verdict = "🏠 إنت جوه مبنى مقفول (السقف بيحجب الأقمار) — اخرج للشارع أو البلكونة!";
+      }
+    }
+
+    const canAnchor = st.route === "create" || st.route === "game" || st.route === "simulation";
+    return `
+      <div class="precision-meter-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-size:11px;color:var(--muted);font-weight:800;">الدقة الفعّالة (Kalman + PDR + ZUPT)</div>
+            <div style="font-size:26px;font-weight:900;color:${barColor};line-height:1.15;">
+              ${fused !== null ? "±" + fused.toFixed(1) + " متر" : "جاري المسح..."}
+            </div>
+          </div>
+          <span class="pill" style="background:var(--surface-2);color:var(--text);">
+            ${esc(t.motionMode)}
+          </span>
+        </div>
+        <div class="precision-bar-track">
+          <div class="precision-bar-fill" style="width:${pct}%;background:${barColor};"></div>
+        </div>
+        <div style="font-size:11.5px;font-weight:800;color:var(--text);">${verdict}</div>
+      </div>
+
+      <div class="tele-grid">
+        <div class="tele-cell">
+          <div class="tele-lbl">دقة الأقمار الخام (GNSS)</div>
+          <div class="tele-val">${raw !== null ? "±" + raw + "م" : "—"}</div>
+        </div>
+        <div class="tele-cell">
+          <div class="tele-lbl">حساس الخطوات (PDR)</div>
+          <div class="tele-val" style="color:${t.motionActive ? "#6EE7B7" : "#FDE68A"};">${t.motionActive ? t.stepsTotal + " خطوة 👣" : "محتاج تفعيل"}</div>
+        </div>
+        <div class="tele-cell">
+          <div class="tele-lbl">البوصلة والاتجاه</div>
+          <div class="tele-val">${t.headingDeg !== null ? Math.round(t.headingDeg) + "° " + esc(t.headingArabic) : "—"}</div>
+        </div>
+        <div class="tele-cell">
+          <div class="tele-lbl">قفزات مرفوضة (فلتر)</div>
+          <div class="tele-val">${t.rejectedOutliers} قفزة / ${t.acceptedFixes} قراءة</div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:7px;">
+        ${canAnchor ? `
+          <button class="btn btn-warning" style="width:100%;" onclick="onStartAnchorCalibration()">
+            🎯 اضبط مكاني بالظبط ع الخريطة ${t.biasActive ? `(مُعاير ${t.biasMeters}م)` : "(إلغاء الترحيل)"}
+          </button>
+        ` : ""}
+        ${t.biasActive ? `
+          <button class="btn btn-outline btn-sm" style="width:100%;" onclick="onClearAnchorCalibration()">
+            إلغاء الضبط اليدوي (${t.biasMeters}م)
+          </button>
+        ` : ""}
+        <div class="grid-2">
+          <button class="btn btn-cyan btn-sm" onclick="onEnableCompass()">🧭👣 فعّل الحساسات</button>
+          <button class="btn btn-primary btn-sm" onclick="onRecalibrateGps()">📡 معايرة فائقة</button>
+        </div>
+      </div>
+    `;
+  }
+
+  function updatePrecisionSheetDynamic() {
+    if (K.state.modal !== "precision_hud") return;
+    const el = document.getElementById("precision-sheet-body");
+    if (el) el.innerHTML = buildPrecisionSheetBody();
+  }
+
   // =========================================================================
   // NATIVE BOTTOM SHEETS & FULL-SCREEN ROLE CARDS
   // =========================================================================
@@ -1161,6 +1278,16 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
+    // 9.5 HyperLock 3M Sensor-Fusion Telemetry & Calibration Sheet
+    if (st.modal === "precision_hud") {
+      mr.innerHTML = bottomSheetHtml(
+        "🎯 نظام الدقة HyperLock 3M",
+        `<div id="precision-sheet-body" style="display:flex;flex-direction:column;gap:9px;">${buildPrecisionSheetBody()}</div>`,
+        "#6EE7B7"
+      );
+      return;
+    }
+
     // 10. Permissions & Keys Settings Bottom Sheet
     if (st.modal === "permissions") {
       const gpsTxt = formatGpsStatusText();
@@ -1175,7 +1302,7 @@ window.Kameen = window.Kameen || {};
         </div>
         <div class="power-tile" style="cursor:default;">
           <div>
-            <div style="font-size:12.5px;font-weight:800;">البوصلة ومخروط الاتجاه 🧭</div>
+            <div style="font-size:12.5px;font-weight:800;">البوصلة وحساس الخطوات (PDR) 🧭👣</div>
             <div style="font-size:11px;color:var(--muted);">${st.gps.compassActive ? "شغالة لايف ✅ (" + K.App.headingToArabic(st.gps.heading) + ")" : "بتوريّك أنت باصص فين ع الخريطة"}</div>
           </div>
           <button class="btn btn-cyan btn-xs" onclick="onEnableCompass()">تفعيل 🧭</button>
@@ -1231,5 +1358,6 @@ window.Kameen = window.Kameen || {};
     updateMeetingDynamic,
     updateResultChatDOM,
     updateCameraModalStatus,
+    updatePrecisionSheetDynamic,
   };
 })(window.Kameen);

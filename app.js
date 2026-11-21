@@ -10,7 +10,7 @@ window.Kameen = window.Kameen || {};
 
   K.state = {
     route: "landing",
-    mapStyle: "dark",
+    mapStyle: "dark3d",
     tileErrorCount: 0,
     user: {
       id: storedUid,
@@ -22,18 +22,19 @@ window.Kameen = window.Kameen || {};
     },
     gps: {
       coords: { ...K.CONFIG.DEFAULT_CENTER },
-      accuracy: null,
+      accuracy: null,         // Fused accuracy (m)
+      rawAccuracy: null,      // Raw GNSS accuracy (m)
       heading: null,          // degrees 0..359 (0=North, 90=East)
-      headingSource: null,    // "compass" | "gps" | "sim"
+      headingSource: null,    // "compass" | "gps" | "fused" | "sim"
       compassActive: false,
+      motionActive: false,
       hasRealFix: false,
       status: "idle",
       error: null,
       centeredOnce: false,
       bestCenterAcc: Infinity,
       userPickedZone: false,
-      watchId: null,
-      watchdogTimer: null,
+      anchorCalibrating: false,
       lastFixAt: 0,
       lastSentAt: 0,
     },
@@ -63,7 +64,8 @@ window.Kameen = window.Kameen || {};
     simRunning: true,
     simDpadVisible: false,
     mapFollowMe: true,
-    mapZooming: false,
+    map3D: true,
+    mapRotateWithMe: false,
     simTimeMs: Date.now(),
     roleRevealed: false,
     roleFlipped: false,
@@ -78,14 +80,9 @@ window.Kameen = window.Kameen || {};
     activeCameraMissionId: null,
     toast: null,
     toastTimer: null,
-    leafletMap: null,
-    leafletGroup: null,
-    leafletSelfGroup: null,
+    glMap: null,
     selfMarker: null,
-    selfAccuracyCircle: null,
     selfMarkerColorKey: null,
-    baseTileLayer: null,
-    labelsTileLayer: null,
     tickTimer: null,
     lastSyncBroadcastAt: 0,
     recordedGameOverId: null,
@@ -100,150 +97,58 @@ window.Kameen = window.Kameen || {};
   }
 
   function headingToArabic(deg) {
-    if (typeof deg !== "number" || !Number.isFinite(deg)) return "—";
-    const n = ((deg % 360) + 360) % 360;
-    if (n >= 337.5 || n < 22.5) return "شمال";
-    if (n < 67.5) return "شمال شرق";
-    if (n < 112.5) return "شرق";
-    if (n < 157.5) return "جنوب شرق";
-    if (n < 202.5) return "جنوب";
-    if (n < 247.5) return "جنوب غرب";
-    if (n < 292.5) return "غرب";
-    return "شمال غرب";
+    return K.Location.headingToArabic(deg);
   }
 
   function computeBearingDeg(from, to) {
-    const rad = Math.PI / 180;
-    const lat1 = from.lat * rad, lat2 = to.lat * rad;
-    const dLng = (to.lng - from.lng) * rad;
-    const y = Math.sin(dLng) * Math.cos(lat2);
-    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
-    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+    return K.Location.computeBearingDeg(from, to);
   }
 
-  function smoothAngle(prevDeg, nextDeg, alpha = 0.25) {
-    if (prevDeg === null || !Number.isFinite(prevDeg)) return ((nextDeg % 360) + 360) % 360;
-    let diff = ((nextDeg - prevDeg + 540) % 360) - 180;
-    return ((prevDeg + diff * alpha) + 360) % 360;
-  }
-
-  let lastCompassPaintAt = 0;
   function applyHeading(rawDeg, source) {
-    const st = K.state;
-    if (typeof rawDeg !== "number" || !Number.isFinite(rawDeg)) return;
-    st.gps.heading = smoothAngle(st.gps.heading, rawDeg, source === "compass" ? 0.24 : 0.45);
-    st.gps.headingSource = source;
-    const now = Date.now();
-    if (now - lastCompassPaintAt >= 65) {
-      lastCompassPaintAt = now;
-      K.Map.updateHeadingVisualOnly();
-    }
+    K.Location.setManualHeading(rawDeg, source);
   }
 
-  function onDeviceOrientationEvent(e) {
-    let heading = null;
-    if (typeof e.webkitCompassHeading === "number" && Number.isFinite(e.webkitCompassHeading)) {
-      heading = e.webkitCompassHeading; // iOS Safari
-    } else if (typeof e.alpha === "number" && Number.isFinite(e.alpha)) {
-      // Android Chrome absolute compass heading (adjusted for screen orientation)
-      const screenAngle = (window.screen?.orientation?.angle ?? window.orientation ?? 0) || 0;
-      heading = (360 - e.alpha + screenAngle) % 360;
-    }
-    if (heading !== null) {
-      K.state.gps.compassActive = true;
-      applyHeading(heading, "compass");
-    }
-  }
-
-  let compassBound = false;
   async function startCompass(fromUserGesture = false) {
-    try {
-      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-        if (!fromUserGesture) return; // iOS requires button click
-        const perm = await DeviceOrientationEvent.requestPermission();
-        if (perm !== "granted") {
-          K.showToast("⚠️ رفضت إذن البوصلة — الاتجاه هيشتغل تلقائي وإنت ماشي بالـ GPS");
-          return;
-        }
+    const res = await K.Location.enableSensors(fromUserGesture);
+    const st = K.state;
+    st.gps.compassActive = Boolean(res.compassOk);
+    st.gps.motionActive = Boolean(res.motionOk);
+    if (fromUserGesture) {
+      if (res.compassOk || res.motionOk) {
+        K.showToast("🧭👣 تم تفعيل البوصلة وحساس الخطوات (PDR) لدقة أعلى!");
+      } else {
+        K.showToast("⚠️ المتصفح منع الحساسات — شغالين بالـ GPS الدقيق");
       }
-      if (!compassBound) {
-        compassBound = true;
-        if ("ondeviceorientationabsolute" in window) {
-          window.addEventListener("deviceorientationabsolute", onDeviceOrientationEvent, true);
-        } else {
-          window.addEventListener("deviceorientation", onDeviceOrientationEvent, true);
-        }
-      }
-      if (fromUserGesture) K.showToast("🧭 البوصلة شغالة! لف موبايلك وهتشوف مخروط الاتجاه بيلف معاك");
-    } catch {}
+      if (st.modal === "precision_hud" || st.modal === "permissions") K.UI.renderModal();
+    }
   }
 
-  // Direct Zero-Lag Fused Location Processor (Android FLP / iOS CoreLocation already runs OS Kalman!)
-  function processGpsPosition(pos) {
+  function onFusedLocationUpdate(nextCoords, tele) {
     const st = K.state;
     const now = Date.now();
-    const rawLat = pos.coords.latitude;
-    const rawLng = pos.coords.longitude;
-    const rawAcc = Math.max(3, Math.round(pos.coords.accuracy || 20));
-    const prevAcc = st.gps.accuracy ?? 9999;
-    const prevCoords = { ...st.gps.coords };
-    const dtSec = st.gps.lastFixAt ? Math.max(0.25, (now - st.gps.lastFixAt) / 1000) : 99;
+    const isFirstRealFix = !st.gps.hasRealFix;
 
     st.gps.status = "granted";
     st.gps.error = null;
-
-    let finalLat = rawLat;
-    let finalLng = rawLng;
-
-    if (st.gps.hasRealFix) {
-      const jumpM = K.Geo.distanceMeters(prevCoords, { lat: rawLat, lng: rawLng });
-      const speedMps = jumpM / dtSec;
-
-      // 1) If new reading is MUCH more accurate (e.g. switched from 70m cell tower to 6m real GPS), SNAP IMMEDIATELY!
-      if (rawAcc <= prevAcc * 0.7 && rawAcc <= 25) {
-        finalLat = rawLat;
-        finalLng = rawLng;
-      } else {
-        // 2) Reject extreme cell-tower teleports (>25 m/s with poor accuracy)
-        if (speedMps > 25 && rawAcc > 25 && prevAcc < 20) return;
-        // 3) Reject super-coarse cell-tower bounce (>65m) when we just had a tight GPS lock (<18m)
-        if (rawAcc > 65 && prevAcc <= 18 && dtSec < 12) return;
-
-        // 4) ZERO drag when accuracy is good (<=15m)! Light blend only when noisy (>15m)
-        if (rawAcc > 15 && jumpM < 25) {
-          const alpha = 0.65;
-          finalLat = prevCoords.lat + (rawLat - prevCoords.lat) * alpha;
-          finalLng = prevCoords.lng + (rawLng - prevCoords.lng) * alpha;
-        }
-      }
-    }
-
-    const nextCoords = { lat: finalLat, lng: finalLng, accuracyMeters: rawAcc };
-    const isFirstRealFix = !st.gps.hasRealFix;
     st.gps.hasRealFix = true;
     st.gps.lastFixAt = now;
-    st.gps.accuracy = rawAcc;
-
-    // Heading fallback from GPS movement when phone compass isn't firing
-    if (!st.gps.compassActive) {
-      if (typeof pos.coords.heading === "number" && Number.isFinite(pos.coords.heading) && (pos.coords.speed || 0) > 0.5) {
-        applyHeading(pos.coords.heading, "gps");
-      } else if (!isFirstRealFix && K.Geo.distanceMeters(prevCoords, nextCoords) >= 1.8) {
-        applyHeading(computeBearingDeg(prevCoords, nextCoords), "gps");
-      }
-    }
+    st.gps.accuracy = nextCoords.fusedAccuracy ?? nextCoords.accuracyMeters;
+    st.gps.rawAccuracy = tele.rawAcc;
+    st.gps.compassActive = tele.compassActive;
+    st.gps.motionActive = tele.motionActive;
 
     const useRealHere = !st.isSimMode || st.simUseRealGps;
     if (useRealHere) {
       st.gps.coords = nextCoords;
     }
 
-    // Auto-center immediately on first real GPS fix OR better fix on Create Zone screen!
-    if (isFirstRealFix || (!st.gps.userPickedZone && rawAcc + 4 < st.gps.bestCenterAcc && st.route === "create")) {
+    // Auto-center immediately on first real GPS fix OR better fix on Create Zone screen
+    const rawAcc = tele.rawAcc || 20;
+    if (isFirstRealFix || (!st.gps.userPickedZone && rawAcc + 3 < st.gps.bestCenterAcc && st.route === "create")) {
       st.gps.bestCenterAcc = rawAcc;
       st.createForm.center = { ...nextCoords };
-      if (st.leafletMap && useRealHere && !st.mapZooming) {
-        st.leafletMap.setView([nextCoords.lat, nextCoords.lng], 18, { animate: !isFirstRealFix });
+      if (useRealHere) {
+        K.Map.flyTo(nextCoords, 18.4, !isFirstRealFix);
       }
       if (st.route === "create") {
         void K.Map.fetchOverpassPOIs(nextCoords, st.createForm.radius);
@@ -251,81 +156,65 @@ window.Kameen = window.Kameen || {};
       st.gps.centeredOnce = true;
     }
 
-    // IMMEDIATE 60fps smooth dot glide on the map (don't wait for 1s engine tick!)
+    // Immediate 60fps smooth glide on every GPS fix AND every PDR footstep!
     if (useRealHere && (st.route === "game" || st.route === "simulation" || st.route === "create")) {
       K.Map.setSelfLiveCoords(nextCoords, true);
+      // Fast precision badge update on the side FAB without full HUD rebuild
+      const accBtn = document.getElementById("gps-acc-fab");
+      if (accBtn && st.gps.accuracy !== null) {
+        accBtn.textContent = "±" + (st.gps.accuracy < 10 ? st.gps.accuracy.toFixed(1) : Math.round(st.gps.accuracy));
+      }
     }
 
-    // Push to game engine & network every 750ms for live real-time movement
-    if (st.engine && useRealHere && now - st.gps.lastSentAt >= 750) {
+    // Push fused location to game engine & multiplayer room (throttled to 650ms)
+    if (st.engine && useRealHere && now - st.gps.lastSentAt >= 650) {
       st.gps.lastSentAt = now;
       dispatchAction("UPDATE_LOC", { coords: nextCoords });
     }
 
     K.UI.updateGpsStatusDOM();
+    if (st.modal === "precision_hud") K.UI.updatePrecisionSheetDynamic();
+  }
+
+  function onFusedHeadingUpdate(deg, source) {
+    const st = K.state;
+    st.gps.heading = deg;
+    st.gps.headingSource = source;
+    if (source === "compass" || source === "fused") st.gps.compassActive = true;
+    K.Map.updateHeadingVisualOnly();
+  }
+
+  function onFusedLocationError(err) {
+    const st = K.state;
+    st.gps.status = err && err.code === 1 ? "denied" : "idle";
+    st.gps.error = err && err.code === 1
+      ? "رفضت إذن الموقع — افتحه من إعدادات المتصفح واختار (دقيق)"
+      : (location.protocol !== "https:" && location.hostname !== "localhost")
+        ? "الـ GPS محتاج رابط HTTPS (جيت هاب / فيرسل بيدعمه!)"
+        : "لسه بيلقط أقمار GPS — اخرج للشارع أو البلكونة";
+    K.UI.updateGpsStatusDOM();
   }
 
   function recalibrateGps() {
     const st = K.state;
-    if (st.gps.watchId !== null && "geolocation" in navigator) {
-      navigator.geolocation.clearWatch(st.gps.watchId);
-      st.gps.watchId = null;
-    }
     st.gps.hasRealFix = false;
     st.gps.bestCenterAcc = Infinity;
     st.mapFollowMe = true;
     st.simUseRealGps = true;
-    K.showToast("📡 بنسحب موقعك الحقيقي على أعلى دقة...");
-    startRealGps();
-    void startCompass(true);
+    K.showToast("📡 جاري المعايرة الفائقة للأقمار وحساسات الحركة...");
+    K.Location.recalibrate(true);
+    if (st.modal === "precision_hud") K.UI.updatePrecisionSheetDynamic();
   }
 
   function startRealGps() {
     const st = K.state;
-    if (!("geolocation" in navigator)) {
-      st.gps.status = "denied";
-      st.gps.error = "المتصفح مش بيدعم GPS";
-      K.UI.updateGpsStatusDOM();
-      return;
-    }
-    void startCompass(false);
-    if (st.gps.watchId !== null) return;
-    st.gps.status = "requesting";
+    if (st.gps.status === "idle") st.gps.status = "requesting";
     K.UI.updateGpsStatusDOM();
-
-    const onErr = (err) => {
-      st.gps.status = err.code === 1 ? "denied" : "idle";
-      st.gps.error = err.code === 1
-        ? "رفضت إذن الموقع — افتحه من إعدادات المتصفح واختار (دقيق)"
-        : (location.protocol !== "https:" && location.hostname !== "localhost")
-          ? "الـ GPS محتاج رابط HTTPS (جيت هاب / فيرسل بيدعمه!)"
-          : "لسه بيلقط أقمار GPS — اخرج للشارع أو البلكونة";
-      K.UI.updateGpsStatusDOM();
-    };
-
-    // Instant initial high-accuracy grab + continuous watchPosition
-    navigator.geolocation.getCurrentPosition(processGpsPosition, () => {}, {
-      enableHighAccuracy: true, maximumAge: 0, timeout: 10000,
+    K.Location.start({
+      onLocationUpdate: onFusedLocationUpdate,
+      onHeadingUpdate: onFusedHeadingUpdate,
+      onError: onFusedLocationError,
     });
-
-    st.gps.watchId = navigator.geolocation.watchPosition(
-      processGpsPosition,
-      onErr,
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }
-    );
-
-    // Watchdog: if Android Chrome stalls watchPosition for >7s while on map, kick fresh GPS read!
-    if (st.gps.watchdogTimer) clearInterval(st.gps.watchdogTimer);
-    st.gps.watchdogTimer = setInterval(() => {
-      if (document.visibilityState !== "visible") return;
-      if (st.gps.status === "denied") return;
-      const staleMs = Date.now() - (st.gps.lastFixAt || 0);
-      if (staleMs > 7000) {
-        navigator.geolocation.getCurrentPosition(processGpsPosition, () => {}, {
-          enableHighAccuracy: true, maximumAge: 0, timeout: 9000,
-        });
-      }
-    }, 6000);
   }
 
   async function requestCameraPerm() {
@@ -347,6 +236,20 @@ window.Kameen = window.Kameen || {};
 
   function handleMapTap(clicked) {
     const st = K.state;
+    if (st.gps.anchorCalibrating) {
+      const res = K.Location.setAnchorCalibration(clicked.lat, clicked.lng);
+      st.gps.anchorCalibrating = false;
+      document.body.classList.remove("anchor-calibrating");
+      if (!res.ok) {
+        K.showToast("⚠️ " + res.error);
+      } else {
+        K.SFX.play("win");
+        K.showToast(`🎯 تم تثبيت موقعك بالظبط! (اتصحح ترحيل ${res.correctedMeters}م)`);
+      }
+      K.Map.updateLayers();
+      K.UI.updateHudOnly();
+      return;
+    }
     if (st.route === "create") {
       st.gps.userPickedZone = true;
       st.createForm.center = clicked;
@@ -636,6 +539,7 @@ window.Kameen = window.Kameen || {};
         K.Map.updateLayers();
         K.UI.updateHudOnly();
         if (st.modal === "missions_sheet") K.UI.updateMissionsDynamic();
+        if (st.modal === "precision_hud") K.UI.updatePrecisionSheetDynamic();
       } else if (st.route === "meeting") {
         K.UI.updateMeetingDynamic();
       }
@@ -1000,7 +904,7 @@ window.Kameen = window.Kameen || {};
   };
 
   window.addEventListener("resize", () => {
-    if (K.state.leafletMap) K.state.leafletMap.invalidateSize(true);
+    K.Map.resize();
   });
 
   document.addEventListener("visibilitychange", () => {
@@ -1011,6 +915,34 @@ window.Kameen = window.Kameen || {};
 
   window.onRecalibrateGps = () => recalibrateGps();
   window.onEnableCompass = () => { void startCompass(true); };
+  window.onStartAnchorCalibration = () => {
+    const st = K.state;
+    if (!st.gps.hasRealFix) {
+      return K.showToast("⚠️ استنى الـ GPS يلقط موقعك الأول قبل الضبط اليدوي");
+    }
+    if (st.route !== "create" && st.route !== "game" && st.route !== "simulation") {
+      return K.showToast("📍 ادخل الخريطة الأول عشان تضبط مكانك عليها");
+    }
+    st.modal = null;
+    st.gps.anchorCalibrating = true;
+    st.simUseRealGps = true;
+    document.body.classList.add("anchor-calibrating");
+    K.UI.renderModal();
+    K.UI.updateHudOnly();
+    K.showToast("🎯 اضغط على مكانك الحقيقي بالظبط على الخريطة دلوقتي!", 4500);
+  };
+  window.onCancelAnchorCalibration = () => {
+    K.state.gps.anchorCalibrating = false;
+    document.body.classList.remove("anchor-calibrating");
+    K.UI.updateHudOnly();
+  };
+  window.onClearAnchorCalibration = () => {
+    K.Location.clearAnchorCalibration();
+    K.SFX.play("click");
+    K.showToast("🔄 تم إلغاء التعديل اليدوي والرجوع لقراءة الأقمار");
+    if (K.state.modal === "precision_hud") K.UI.updatePrecisionSheetDynamic();
+    K.Map.updateLayers();
+  };
 
   K.App = {
     isMatchHost,

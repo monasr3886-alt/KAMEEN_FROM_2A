@@ -14,9 +14,9 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="" />
   <link rel="stylesheet" href="./styles.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body data-role="neutral">
@@ -30,11 +30,10 @@
     <nav id="app-tabbar" class="app-tabbar"></nav>
   </div>
 
-  <!-- Full-Bleed Native Map Screen (Create Zone / Imposter HUD / Investigator HUD / Ghost HUD) -->
+  <!-- Full-Bleed 3D WebGL Map Screen (Create Zone / Imposter HUD / Investigator HUD / Ghost HUD) -->
   <div id="map-screen" class="hidden">
-    <div id="persistent-leaflet-map"></div>
+    <div id="persistent-gl-map"></div>
     <svg id="fallback-radar" class="hidden" viewBox="0 0 400 700" preserveAspectRatio="xMidYMid slice"></svg>
-    <div class="map-grid-fx"></div>
     <div id="map-hud-top"></div>
     <div id="map-side-fabs"></div>
     <div id="sim-dpad-root" class="hidden"></div>
@@ -46,6 +45,7 @@
 
   <script src="./config.js"></script>
   <script src="./engine.js"></script>
+  <script src="./location.js"></script>
   <script src="./ai.js"></script>
   <script src="./network.js"></script>
   <script src="./map.js"></script>
