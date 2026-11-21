@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <meta name="theme-color" content="#05070B" />
+  <meta name="theme-color" content="#000000" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -21,26 +21,33 @@
 </head>
 <body data-role="neutral">
   <div id="danger-vignette" class="hidden"></div>
+  <div id="heartbeat-vignette" class="hidden"></div>
   <div id="toast-root"></div>
 
-  <!-- Native App Shell (Non-Map Screens with Fixed Header + Scroll Area + Native Bottom Tab Bar) -->
+  <!-- Native Liquid-Glass App Shell -->
   <div id="app-shell" class="app-shell">
     <header id="app-header" class="app-topbar"></header>
     <main id="page-root" class="app-scroll"></main>
     <nav id="app-tabbar" class="app-tabbar"></nav>
   </div>
 
-  <!-- Full-Bleed 3D WebGL Map Screen (Create Zone / Imposter HUD / Investigator HUD / Ghost HUD) -->
+  <!-- Full-Bleed Tactical Street Radar Screen (Zero Satellite / Zero Clutter) -->
   <div id="map-screen" class="hidden">
     <div id="persistent-gl-map"></div>
     <svg id="fallback-radar" class="hidden" viewBox="0 0 400 700" preserveAspectRatio="xMidYMid slice"></svg>
+    <div id="radar-fx-overlay" class="radar-fx-overlay" aria-hidden="true">
+      <div class="radar-ring r1"></div>
+      <div class="radar-ring r2"></div>
+      <div class="radar-ring r3"></div>
+      <div class="radar-sweep-arm"></div>
+    </div>
     <div id="map-hud-top"></div>
     <div id="map-side-fabs"></div>
     <div id="sim-dpad-root" class="hidden"></div>
     <div id="map-hud-bottom"></div>
   </div>
 
-  <!-- Native Bottom Sheets & Full-Screen Role Modals -->
+  <!-- Bloody Liquid-Glass Bottom Sheets & Role Modals -->
   <div id="modal-root"></div>
 
   <script src="./config.js"></script>

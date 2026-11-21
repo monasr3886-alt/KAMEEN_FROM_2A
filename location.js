@@ -526,13 +526,62 @@ window.Kameen = window.Kameen || {};
     emitFusedCoords("anchor_clear");
   }
 
-  // --- Start & High-Accuracy Warmup Burst ---
+  let autoUnlockInstalled = false;
+  let lastBoostMs = 0;
+
+  function grabHighAccuracyOnce() {
+    if (!("geolocation" in navigator)) return;
+    try {
+      navigator.geolocation.getCurrentPosition(handleRawGpsFix, () => {}, {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 10000,
+      });
+    } catch {}
+  }
+
+  // Non-destructive HyperLock Boost: forces immediate GNSS satellite refinement + binds compass/PDR automatically
+  function boostLock(fromUserGesture = false) {
+    const now = Date.now();
+    void enableSensors(fromUserGesture);
+    if (now - lastBoostMs < 3500) return;
+    lastBoostMs = now;
+    grabHighAccuracyOnce();
+    F.warmupTimers.forEach((id) => clearTimeout(id));
+    F.warmupTimers = [
+      setTimeout(grabHighAccuracyOnce, 1200),
+      setTimeout(grabHighAccuracyOnce, 3000),
+      setTimeout(grabHighAccuracyOnce, 5500),
+    ];
+  }
+
+  // Silent First-Touch Auto-Unlock: activates iOS/Android Compass + PDR Step Sensor + Audio on the user's VERY FIRST tap!
+  function installAutoUnlock() {
+    if (autoUnlockInstalled || typeof window === "undefined") return;
+    autoUnlockInstalled = true;
+    const onFirstGesture = () => {
+      void enableSensors(true);
+      boostLock(true);
+      if (K.SFX && typeof K.SFX.warmup === "function") K.SFX.warmup();
+      if (F.compassBound && F.motionBound) {
+        window.removeEventListener("pointerdown", onFirstGesture, true);
+        window.removeEventListener("touchstart", onFirstGesture, true);
+        window.removeEventListener("click", onFirstGesture, true);
+      }
+    };
+    window.addEventListener("pointerdown", onFirstGesture, { capture: true, passive: true });
+    window.addEventListener("touchstart", onFirstGesture, { capture: true, passive: true });
+    window.addEventListener("click", onFirstGesture, { capture: true, passive: true });
+  }
+
+  // --- Start & Automatic High-Accuracy HyperLock Burst ---
   function start(callbacks = {}) {
     if (callbacks.onLocationUpdate) F.onLocationUpdate = callbacks.onLocationUpdate;
     if (callbacks.onHeadingUpdate) F.onHeadingUpdate = callbacks.onHeadingUpdate;
     if (callbacks.onError) F.onError = callbacks.onError;
 
     void enableSensors(false);
+    installAutoUnlock();
 
     if (!("geolocation" in navigator)) {
       if (F.onError) F.onError({ code: 0, message: "المتصفح مش بيدعم GPS" });
@@ -544,22 +593,9 @@ window.Kameen = window.Kameen || {};
       if (F.onError) F.onError(err);
     };
 
-    // High-accuracy warmup burst: immediate grab + 2s + 5s kick to force GNSS hardware lock
-    const grabNow = () => {
-      try {
-        navigator.geolocation.getCurrentPosition(handleRawGpsFix, () => {}, {
-          enableHighAccuracy: true,
-          maximumAge: 0,
-          timeout: 10000,
-        });
-      } catch {}
-    };
-    grabNow();
-    F.warmupTimers.forEach((id) => clearTimeout(id));
-    F.warmupTimers = [
-      setTimeout(grabNow, 2000),
-      setTimeout(grabNow, 5000),
-    ];
+    // High-accuracy auto-warmup burst: immediate grab + 1.2s + 3s + 5.5s kick to lock GNSS fast
+    lastBoostMs = 0;
+    boostLock(false);
 
     F.watchId = navigator.geolocation.watchPosition(
       handleRawGpsFix,
@@ -571,10 +607,10 @@ window.Kameen = window.Kameen || {};
     if (F.watchdogTimer) clearInterval(F.watchdogTimer);
     F.watchdogTimer = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      if (Date.now() - (F.lastFixMs || 0) > 6500) {
-        grabNow();
+      if (Date.now() - (F.lastFixMs || 0) > 6000) {
+        grabHighAccuracyOnce();
       }
-    }, 5500);
+    }, 5000);
   }
 
   function recalibrate(fromUserGesture = true) {
@@ -590,6 +626,7 @@ window.Kameen = window.Kameen || {};
     F.lastRawAcc = Infinity;
     F.rejectedOutliers = 0;
     F.acceptedFixes = 0;
+    lastBoostMs = 0;
     void enableSensors(fromUserGesture);
     start();
   }
@@ -637,6 +674,8 @@ window.Kameen = window.Kameen || {};
 
   K.Location = {
     start,
+    boostLock,
+    installAutoUnlock,
     recalibrate,
     enableSensors,
     setAnchorCalibration,

@@ -118,7 +118,27 @@ window.Kameen = window.Kameen || {};
         else if (type === "broker") { tone(520, 0.09, 0, "triangle"); tone(780, 0.11, 0.1, "triangle"); tone(1040, 0.2, 0.22, "triangle"); if (navigator.vibrate) navigator.vibrate([90, 60, 110]); }
         else if (type === "airdrop") { tone(587, 0.1, 0, "triangle"); tone(880, 0.18, 0.11, "triangle"); if (navigator.vibrate) navigator.vibrate([80, 50, 80]); }
         else if (type === "win") { tone(523, 0.13, 0); tone(659, 0.13, 0.14); tone(784, 0.24, 0.28); }
+        else if (type === "radar") { tone(980, 0.09, 0, "sine", 0.07); tone(1420, 0.16, 0.09, "sine", 0.045); }
+        else if (type === "heartbeat_warm") {
+          tone(68, 0.11, 0, "sine", 0.14);
+          tone(54, 0.13, 0.16, "sine", 0.10);
+          if (navigator.vibrate) navigator.vibrate([32, 95, 24]);
+        }
+        else if (type === "heartbeat_crit") {
+          tone(76, 0.11, 0, "triangle", 0.20);
+          tone(58, 0.13, 0.14, "sine", 0.16);
+          if (navigator.vibrate) navigator.vibrate([55, 75, 45]);
+        }
         else if (type === "click") { tone(540, 0.04, 0, "sine", 0.055); if (navigator.vibrate) navigator.vibrate(10); }
+      } catch {}
+    },
+    warmup() {
+      try {
+        if (!this.ctx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (AC) this.ctx = new AC();
+        }
+        if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
       } catch {}
     }
   };

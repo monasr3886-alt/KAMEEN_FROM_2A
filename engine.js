@@ -459,6 +459,22 @@ window.Kameen = window.Kameen || {};
         }
       }
 
+      // Investigator Sixth-Sense Tension Heartbeat (NEVER leaks imposter identity/direction!)
+      let dangerSense = null;
+      if (self.role === "INVESTIGATOR" && self.alive && !isSpread && this.state.phase === "ACTIVE") {
+        const imps = Object.values(this.state.players).filter((p) => p.alive && p.role === "IMPOSTER");
+        let minImpD = Infinity;
+        for (const imp of imps) {
+          const d = distanceMeters(self.coords, imp.coords);
+          if (d < minImpD) minImpD = d;
+        }
+        if (minImpD <= 14) {
+          dangerSense = { level: "critical", label: "💓 خطر شديد جداً.. حد لازق فيك!" };
+        } else if (minImpD <= 26) {
+          dangerSense = { level: "warm", label: "🫀 إحساس غريب.. في حد بيقرّب منك!" };
+        }
+      }
+
       const outsideZoneRemainingMs = !isSpread && self.alive && self.outsideZoneSinceMs !== null
         ? Math.max(0, C.OUTSIDE_ZONE_GRACE_MS - (nowMs - self.outsideZoneSinceMs))
         : null;
@@ -486,7 +502,7 @@ window.Kameen = window.Kameen || {};
         isRevealActive, showdownActive: this.state.showdownActive,
         aiJammed: this.state.aiJammedUntilMs > nowMs,
         aiJammedRemainingSec: this.state.aiJammedUntilMs > nowMs ? Math.ceil((this.state.aiJammedUntilMs - nowMs) / 1000) : 0,
-        outsideZoneRemainingMs, decoyPing, activeAirdrop, nearestTarget,
+        outsideZoneRemainingMs, decoyPing, activeAirdrop, nearestTarget, dangerSense,
         investigationDone: this.state.investigationDone || 0,
         investigationGoal: this.state.investigationGoal || 4,
         landmarks: this.getScanLandmarks(),

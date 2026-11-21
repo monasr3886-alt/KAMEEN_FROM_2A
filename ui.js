@@ -6,6 +6,14 @@ window.Kameen = window.Kameen || {};
   const esc = K.escHtml;
   const fmt = K.fmtClock;
 
+  // Zero-flicker DOM diff helper: prevents rebuilding HUD DOM & dropping button taps when HTML is unchanged!
+  function setHtmlIfChanged(el, html) {
+    if (!el) return;
+    if (el.__lastHtml === html) return;
+    el.__lastHtml = html;
+    el.innerHTML = html;
+  }
+
   const ICONS = {
     play: `<svg viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>`,
     sim: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
@@ -140,8 +148,8 @@ window.Kameen = window.Kameen || {};
     const botEl = document.getElementById("map-hud-bottom");
     if (!topEl || !sideEl || !botEl) return;
 
-    const styleIcons = { dark3d: "🌑", street3d: "🏙️", satellite: "🛰️", radar: "📡" };
-    const styleIco = styleIcons[st.mapStyle] || "🗺️";
+    const styleIco = st.mapStyle === "radar_offline" ? "🛣️" : "📡";
+    const styleTitle = st.mapStyle === "radar_offline" ? "إظهار شوارع الرادار" : "رادار صافي بدون شوارع";
 
     renderSimDpad();
 
@@ -151,7 +159,7 @@ window.Kameen = window.Kameen || {};
       K.setDangerVignette(false);
       if (K.isUserTyping() && document.activeElement.id === "create-title-inp") return;
       const f = st.createForm;
-      topEl.innerHTML = `
+      setHtmlIfChanged(topEl, `
         <div class="dynamic-capsule">
           <button class="icon-btn" style="width:34px;height:34px;" onclick="onNav('landing')">${ICONS.back}</button>
           <div style="text-align:center;">
@@ -166,16 +174,15 @@ window.Kameen = window.Kameen || {};
             <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
           </div>
         ` : ""}
-      `;
+      `);
       const cAcc = st.gps.accuracy;
       const cAccCls = !cAcc ? "" : (cAcc <= 4.5 ? "acc-ultra" : (cAcc <= 12 ? "acc-good" : (cAcc <= 25 ? "acc-mid" : "acc-poor")));
-      sideEl.innerHTML = `
-        <button class="map-fab" title="نمط الخريطة" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
-        <button class="map-fab ${st.map3D ? "active-fab" : ""}" style="font-size:12px;font-weight:900;" title="منظور 3D" onclick="Kameen.Map.toggle3D()">${st.map3D ? "3D" : "2D"}</button>
+      setHtmlIfChanged(sideEl, `
+        <button class="map-fab" title="${styleTitle}" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
         <button id="gps-acc-fab" class="map-fab ${cAccCls}" style="font-size:10px;font-weight:900;" title="نظام الدقة 3م" onclick="onOpenModal('precision_hud')">${cAcc ? "±" + (cAcc < 10 ? cAcc.toFixed(1) : Math.round(cAcc)) : "📡"}</button>
         <button class="map-fab" title="موقعي" onclick="onUseMyLocationForZone()">📍</button>
-      `;
-      botEl.innerHTML = `
+      `);
+      setHtmlIfChanged(botEl, `
         <div class="hud-glass" style="display:flex;flex-direction:column;gap:9px;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <span id="create-radius-lbl" style="font-size:12px;font-weight:900;">نصف القطر: <span style="color:var(--gold);">${f.radius}م</span> • ${f.pois.length} معلم (${esc(f.poiSource || "جاهز")})</span>
@@ -210,7 +217,7 @@ window.Kameen = window.Kameen || {};
           ` : ""}
           <button class="btn btn-primary" style="width:100%;padding:13px;" onclick="onCreateMatch()">افتح اللوبي واعزم الشلة 🔥</button>
         </div>
-      `;
+      `);
       return;
     }
 
@@ -245,23 +252,22 @@ window.Kameen = window.Kameen || {};
 
     const invPct = Math.min(100, Math.round((vis.investigationDone / Math.max(1, vis.investigationGoal)) * 100));
 
-    // Side Floating Circular Map FABs (Google Maps / PUBG 3D Controls!)
+    // Side Floating Circular Map FABs (Clean 2D OpenStreetMap Controls!)
     const gpsAcc = st.gps.accuracy;
     const accCls = !gpsAcc ? "" : (gpsAcc <= 4.5 ? "acc-ultra" : (gpsAcc <= 12 ? "acc-good" : (gpsAcc <= 25 ? "acc-mid" : "acc-poor")));
     const accLbl = gpsAcc ? ("±" + (gpsAcc < 10 ? Number(gpsAcc).toFixed(1) : Math.round(gpsAcc))) : "📡";
-    sideEl.innerHTML = `
-      <button class="map-fab" title="نمط الخريطة (3D ليلي / شوارع / قمر)" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
-      <button class="map-fab ${st.map3D ? "active-fab" : ""}" style="font-size:12px;font-weight:900;" title="منظور 3D / 2D" onclick="Kameen.Map.toggle3D()">${st.map3D ? "3D" : "2D"}</button>
+    setHtmlIfChanged(sideEl, `
+      <button class="map-fab" title="${styleTitle}" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
       <button id="compass-rot-fab" class="map-fab ${st.mapRotateWithMe ? "active-fab" : ""}" title="لف الخريطة مع البوصلة 360°" onclick="Kameen.Map.toggleHeadingUp()">🧭</button>
       <button id="follow-gps-fab" class="map-fab ${st.mapFollowMe ? "active-fab" : ""}" title="تتبع موقعي" onclick="Kameen.Map.recenter()">📍</button>
       <button id="gps-acc-fab" class="map-fab ${accCls}" style="font-size:10px;font-weight:900;" title="نظام الدقة HyperLock 3M" onclick="onOpenModal('precision_hud')">${accLbl}</button>
       <button class="map-fab" title="الصوت" onclick="Kameen.SFX.toggle();Kameen.UI.updateHudOnly()">${K.SFX.muted ? "🔇" : "🔊"}</button>
       ${st.route === "simulation" ? `<button class="map-fab active-fab" title="أدوات المحاكاة" onclick="onOpenModal('sim_tools')">🧪</button>` : ""}
-    `;
+    `);
 
     // --- B) GHOST / SPECTATOR DEDICATED SCREEN ---
     if (!isAlive) {
-      topEl.innerHTML = `
+      setHtmlIfChanged(topEl, `
         <div class="dynamic-capsule">
           <span class="pill" style="background:rgba(148,163,184,0.2);color:#CBD5E1;">👻 وضع الشبح</span>
           <div style="text-align:center;">
@@ -275,8 +281,8 @@ window.Kameen = window.Kameen || {};
             ${esc(st.lastIntel)}
           </div>
         ` : ""}
-      `;
-      botEl.innerHTML = `
+      `);
+      setHtmlIfChanged(botEl, `
         <div class="role-dock" style="grid-template-columns:1fr 1fr;">
           <button class="dock-btn primary-dock" onclick="onOpenModal('intel_log')">
             <span class="dock-ico">🤖</span><span>سجل المحلل (${vis.aiReports.length})</span>
@@ -285,7 +291,7 @@ window.Kameen = window.Kameen || {};
             <span class="dock-ico">🚪</span><span>خروج للرئيسية</span>
           </button>
         </div>
-      `;
+      `);
       return;
     }
 
@@ -300,7 +306,7 @@ window.Kameen = window.Kameen || {};
               : `🔍 أقرب صيدة: ${nt.dist}م`)
         : "🏃 وقت التشتيت";
 
-      topEl.innerHTML = `
+      setHtmlIfChanged(topEl, `
         <div class="dynamic-capsule">
           <span class="pill" style="background:var(--crimson-soft);color:#FF6B86;">🔪 الغدّار • ${vis.self.points}ن</span>
           <div style="text-align:center;">
@@ -363,9 +369,9 @@ window.Kameen = window.Kameen || {};
             </div>
           </div>
         ` : ""}
-      `;
+      `);
 
-      botEl.innerHTML = `
+      setHtmlIfChanged(botEl, `
         <div style="display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap;">
           ${!isSpread && nt ? `
             <button class="hero-action-fab ${nt.inKillRange && killCdSec === 0 ? "pulse-red" : ""}"
@@ -403,12 +409,12 @@ window.Kameen = window.Kameen || {};
             ${vis.aiReports.length ? `<span class="dock-badge">${vis.aiReports.length}</span>` : ""}
           </button>
         </div>
-      `;
+      `);
       return;
     }
 
     // --- D) INVESTIGATOR (المحقق) DEDICATED DETECTIVE SCREEN ---
-    topEl.innerHTML = `
+    setHtmlIfChanged(topEl, `
       <div class="dynamic-capsule" style="flex-direction:column;align-items:stretch;gap:4px;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
           <span class="pill" style="background:var(--cyan-soft);color:#67E8F9;">🕵️ المحقق • ${vis.self.points}ن</span>
@@ -442,6 +448,7 @@ window.Kameen = window.Kameen || {};
         ` : ""}
       ${isSpread ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--gold);color:#FDE68A;">🏃 وقت التشتيت — اتفرقوا في الحي قبل ما الغدّار يبدأ!</div>` : ""}
       ${!isSpread && vis.postSpreadGraceSec > 0 ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--green);color:#6EE7B7;">🛡️ فترة أمان (${vis.postSpreadGraceSec}ث) — ابدأ أول مهمة ليك!</div>` : ""}
+      ${vis.dangerSense ? `<div class="alert-strip ${vis.dangerSense.level === "critical" ? "pulse-red" : ""}" style="background:${vis.dangerSense.level === "critical" ? "linear-gradient(90deg,rgba(160,10,36,0.92),rgba(255,30,66,0.92),rgba(160,10,36,0.92))" : "rgba(46,8,16,0.88)"};border:1px solid var(--crimson);color:#FFF5F7;">${esc(vis.dangerSense.label)}</div>` : ""}
       ${vis.showdownActive ? `<div class="alert-strip" style="background:linear-gradient(90deg,#991B1B,#FF2E54,#991B1B);color:#fff;">🔥 الخاتمة السخنة! الرادار كل 45ث — اصمد أو خلّص القضية!</div>` : ""}
       ${vis.aiJammed ? `<div class="alert-strip" style="background:rgba(10,14,24,0.94);border:1px solid var(--cyan);color:#7DD3FC;">⚡ الغدّار عامل تشويش! المحلل والرادار فصلوا مؤقتاً!</div>` : ""}
       ${vis.outsideZoneRemainingMs !== null ? `<div class="alert-strip pulse-red" style="background:var(--crimson);color:#fff;">⚠️ إنت برّه الزون! ادخل خلال ${Math.ceil(vis.outsideZoneRemainingMs / 1000)}ث!</div>` : ""}
@@ -482,9 +489,9 @@ window.Kameen = window.Kameen || {};
           </div>
         </div>
       ` : ""}
-    `;
+    `);
 
-    botEl.innerHTML = `
+    setHtmlIfChanged(botEl, `
       ${!isSpread && nearbyBody ? `
         <button class="hero-action-fab pulse-red" style="background:linear-gradient(135deg,#FF2E54,#991B1B);" onclick="onReportBody('${nearbyBody.id}')">
           🚨 لقيت جثة ${esc(nearbyBody.victimName)} — اطلب اجتماع!
@@ -508,7 +515,7 @@ window.Kameen = window.Kameen || {};
           ${vis.aiReports.length ? `<span class="dock-badge">${vis.aiReports.length}</span>` : ""}
         </button>
       </div>
-    `;
+    `);
   }
 
   // =========================================================================
@@ -549,7 +556,7 @@ window.Kameen = window.Kameen || {};
           </div>
 
           <button class="btn btn-primary" style="width:100%;padding:14px;font-size:14.5px;" onclick="onStartCreateFlow()">
-            🗺️ اعمل كمين جديد في الحي
+            📡 اعمل كمين جديد على الرادار
           </button>
 
           <div style="display:flex;gap:8px;">
@@ -968,7 +975,7 @@ window.Kameen = window.Kameen || {};
       <div class="precision-meter-card">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <div>
-            <div style="font-size:11px;color:var(--muted);font-weight:800;">الدقة الفعّالة (Kalman + PDR + ZUPT)</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:800;">HyperLock 3M التلقائي (GPS + بوصلة + خطوات) ⚡</div>
             <div style="font-size:26px;font-weight:900;color:${barColor};line-height:1.15;">
               ${fused !== null ? "±" + fused.toFixed(1) + " متر" : "جاري المسح..."}
             </div>

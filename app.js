@@ -10,7 +10,7 @@ window.Kameen = window.Kameen || {};
 
   K.state = {
     route: "landing",
-    mapStyle: "dark3d",
+    mapStyle: "radar_streets",
     tileErrorCount: 0,
     user: {
       id: storedUid,
@@ -64,7 +64,6 @@ window.Kameen = window.Kameen || {};
     simRunning: true,
     simDpadVisible: false,
     mapFollowMe: true,
-    map3D: true,
     mapRotateWithMe: false,
     simTimeMs: Date.now(),
     roleRevealed: false,
@@ -273,6 +272,24 @@ window.Kameen = window.Kameen || {};
     }
   }
 
+  let lastHeartbeatAt = 0;
+  function updateHeartbeatFx(vis) {
+    const hbEl = document.getElementById("heartbeat-vignette");
+    if (!hbEl) return;
+    const ds = vis && vis.dangerSense;
+    if (!ds || (K.state.route !== "game" && K.state.route !== "simulation")) {
+      hbEl.className = "hidden";
+      return;
+    }
+    hbEl.className = ds.level;
+    const now = Date.now();
+    const interval = ds.level === "critical" ? 900 : 1750;
+    if (now - lastHeartbeatAt >= interval) {
+      lastHeartbeatAt = now;
+      K.SFX.play(ds.level === "critical" ? "heartbeat_crit" : "heartbeat_warm");
+    }
+  }
+
   function navigate(nextRoute) {
     const st = K.state;
     st.route = nextRoute;
@@ -282,12 +299,17 @@ window.Kameen = window.Kameen || {};
 
     if (nextRoute === "game" || nextRoute === "simulation") {
       void K.WakeLock.acquire();
-    } else if (nextRoute === "landing" || nextRoute === "result") {
-      K.WakeLock.release();
-      K.setDangerVignette(false);
+    } else {
+      updateHeartbeatFx(null);
+      if (nextRoute === "landing" || nextRoute === "result") {
+        K.WakeLock.release();
+        K.setDangerVignette(false);
+      }
     }
 
     if (isMap) {
+      // Automatically boost HyperLock GPS + Compass + PDR Step Sensor whenever entering radar!
+      K.Location.boostLock(true);
       const c = nextRoute === "create"
         ? st.createForm.center
         : (st.engine ? st.engine.getVisibleStateForPlayer(st.user.id).self.coords : st.gps.coords);
@@ -536,6 +558,8 @@ window.Kameen = window.Kameen || {};
       }
 
       if (st.route === "game" || st.route === "simulation") {
+        const visNow = st.engine.getVisibleStateForPlayer(st.user.id);
+        updateHeartbeatFx(visNow);
         K.Map.updateLayers();
         K.UI.updateHudOnly();
         if (st.modal === "missions_sheet") K.UI.updateMissionsDynamic();
@@ -608,8 +632,10 @@ window.Kameen = window.Kameen || {};
   };
 
   window.onStartCreateFlow = () => {
+    K.SFX.warmup();
     K.SFX.play("click");
     startRealGps();
+    K.Location.boostLock(true);
     void K.Map.fetchOverpassPOIs(K.state.createForm.center, K.state.createForm.radius);
     navigate("create");
   };
@@ -675,7 +701,9 @@ window.Kameen = window.Kameen || {};
   };
 
   window.onJoinByInput = () => {
+    K.SFX.warmup();
     startRealGps();
+    K.Location.boostLock(true);
     const inp = document.getElementById("join-code-input");
     joinLobbyByCode(inp ? inp.value : K.state.joinCode);
   };
@@ -764,7 +792,9 @@ window.Kameen = window.Kameen || {};
 
   window.onStartSimulation = () => {
     const st = K.state;
+    K.SFX.warmup();
     K.SFX.play("click");
+    K.Location.boostLock(true);
     K.Network.disconnectRoomChannel();
     const t0 = Date.now();
     const center = { ...st.gps.coords };
@@ -884,6 +914,7 @@ window.Kameen = window.Kameen || {};
     K.Network.disconnectRoomChannel();
     K.WakeLock.release();
     K.setDangerVignette(false);
+    updateHeartbeatFx(null);
     K.state.isSimMode = false;
     K.state.engine = null;
     K.state.lobby = null;
@@ -896,6 +927,7 @@ window.Kameen = window.Kameen || {};
     K.Network.disconnectRoomChannel();
     K.WakeLock.release();
     K.setDangerVignette(false);
+    updateHeartbeatFx(null);
     K.state.isSimMode = false;
     K.state.engine = null;
     K.state.lobby = null;
