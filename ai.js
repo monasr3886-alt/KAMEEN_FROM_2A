@@ -98,33 +98,33 @@ window.Kameen = window.Kameen || {};
       const sysPrompt =
         "أنت 'المحلل النفسي' في لعبة مطاردة وتجسس بالـ GPS في الشارع اسمها 'كمين'. " +
         "اتكلم باللهجة المصرية الشعبية الروشة والمشوّقة (زي: يا رجالة، صحصحوا، مكمبر، طار جري، افتحوا عينيكم). " +
-        "ممنوع تذكر أي أسماء لاعبين. اكتب جملتين قصار ومباشرين مبنيين على البيانات الحقيقية.";
+        "استخدم أسماء الأماكن الحقيقية من الخريطة زي ما هي في البيانات (مثال: قريب من مسجد كذا أو عند شارع كذا)، وممنوع تماماً تقول قطاع شمالي أو جنوبي أو شرقي أو غربي، وممنوع تذكر أسماء لاعبين. اكتب جملتين قصار ومباشرين.";
 
       const userPrompt =
-        `بيانات الميدان الآن: عدد الأحياء ${summary.livingCount}، ` +
-        `توزيع القطاعات ${JSON.stringify(summary.sectorCounts)}، ` +
+        `بيانات الميدان الحقيقية من الخريطة: عدد الأحياء ${summary.livingCount}، ` +
+        `تواجد اللاعبين عند الأماكن ${JSON.stringify(summary.placeCounts)}، ` +
         `عدد الجثث ${summary.bodiesCount}، ` +
         `نص قطر الزون ${summary.zoneRadiusMeters}م، ` +
         `وضع الخاتمة السخنة: ${summary.showdownActive ? "شغال" : "لسه"}، ` +
-        `هل فيه لاعب جري بسرعة فجأة؟ ${summary.sprinterSector || "لأ"}، ` +
-        `هل فيه لاعب مكمبر مكانه كتير؟ ${summary.camperSector || "لأ"}، ` +
-        `هل اتنين قربوا من بعض جداً؟ ${summary.encounterSector || "لأ"}.`;
+        `هل فيه لاعب جري بسرعة فجأة؟ ${summary.sprinterPlace || "لأ"}، ` +
+        `هل فيه لاعب مكمبر مكانه كتير؟ ${summary.camperPlace || "لأ"}، ` +
+        `هل اتنين قربوا من بعض جداً؟ ${summary.encounterPlace || "لأ"}.`;
 
-      let text = await callGroqChat(sysPrompt, userPrompt, 130);
+      let text = await callGroqChat(sysPrompt, userPrompt, 135);
       const source = text ? "groq" : "local";
 
       if (!text) {
-        const busy = Object.entries(summary.sectorCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "القطاع المركزي";
-        if (summary.sprinterSector) {
-          text = `يا رجالة صحصحوا! في واحد طار جري فجأة في ${summary.sprinterSector}.. يا إما عمل عملة وبيهرب يا إما مرعوب!`;
-        } else if (summary.camperSector) {
-          text = `رادار السلوك لقط حد مكمبر مكانه بقاله حبة في ${summary.camperSector}.. يا ترى مستخبي ولا عامل كمين؟`;
-        } else if (summary.encounterSector) {
-          text = `اتنين قربوا من بعض أوي في ${summary.encounterSector}.. هل ده تحالف ولا كانت خناقة على نضافة؟`;
+        const busy = Object.entries(summary.placeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "نص المنطقة";
+        if (summary.sprinterPlace) {
+          text = `يا رجالة صحصحوا! في واحد طار جري فجأة ${summary.sprinterPlace}.. يا إما عمل عملة وبيهرب يا إما مرعوب!`;
+        } else if (summary.camperPlace) {
+          text = `رادار السلوك لقط حد مكمبر مكانه بقاله حبة ${summary.camperPlace}.. يا ترى مستخبي ولا عامل كمين؟`;
+        } else if (summary.encounterPlace) {
+          text = `اتنين قربوا من بعض أوي ${summary.encounterPlace}.. هل ده تحالف ولا كانت خناقة على نضافة؟`;
         } else {
           text = summary.bodiesCount > 0
-            ? `الجو ولّع حوالين ${busy}! فيه ${summary.bodiesCount} ضحية لحد دلوقتي والزون بقت ${summary.zoneRadiusMeters}م!`
-            : `الزحمة كلها حوالين ${busy} بين ${summary.livingCount} لاعبين أحياء.. متأمنش للي ماشي وراك!`;
+            ? `الجو ولّع ${busy}! فيه ${summary.bodiesCount} ضحية لحد دلوقتي والزون بقت ${summary.zoneRadiusMeters}م!`
+            : `الزحمة كلها متجمعة ${busy} بين ${summary.livingCount} لاعبين أحياء.. متأمنش للي ماشي وراك!`;
         }
       }
 

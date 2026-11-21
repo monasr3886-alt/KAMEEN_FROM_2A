@@ -1,12 +1,16 @@
 {
-  "name": "كمين — KAMEEN | متأمنش لحد",
+  "name": "كمين — KAMEEN",
   "short_name": "كمين",
-  "description": "لعبة مطاردة وتجسس وتحقيق بالـ GPS والزون والذكاء الاصطناعي",
+  "description": "لعبة مطاردة وتجسس على أرض الواقع بالـ GPS والزون والذكاء الاصطناعي",
   "start_url": "./index.html",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "fullscreen"
+  ],
   "orientation": "portrait",
   "background_color": "#05070B",
-  "theme_color": "#6E1517",
+  "theme_color": "#05070B",
   "dir": "rtl",
   "lang": "ar",
   "icons": [

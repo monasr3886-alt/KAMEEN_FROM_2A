@@ -23,11 +23,18 @@ window.Kameen = window.Kameen || {};
     gps: {
       coords: { ...K.CONFIG.DEFAULT_CENTER },
       accuracy: null,
+      heading: null,          // degrees 0..359 (0=North, 90=East)
+      headingSource: null,    // "compass" | "gps" | "sim"
+      compassActive: false,
       status: "idle",
       error: null,
       centeredOnce: false,
+      bestCenterAcc: Infinity,
+      userPickedZone: false,
       watchId: null,
       lastSentAt: 0,
+      // Kalman-style smoothing filter state
+      filter: { lat: null, lng: null, variance: 9999, ts: 0 },
     },
     camera: { status: "idle", error: null },
     groqKey: localStorage.getItem("kameen_groq_key") || K.CONFIG.DEFAULT_GROQ_KEY,
@@ -69,6 +76,10 @@ window.Kameen = window.Kameen || {};
     toastTimer: null,
     leafletMap: null,
     leafletGroup: null,
+    leafletSelfGroup: null,
+    selfMarker: null,
+    selfAccuracyCircle: null,
+    selfMarkerColorKey: null,
     baseTileLayer: null,
     labelsTileLayer: null,
     tickTimer: null,
@@ -84,6 +95,138 @@ window.Kameen = window.Kameen || {};
     return true;
   }
 
+  function headingToArabic(deg) {
+    if (typeof deg !== "number" || !Number.isFinite(deg)) return "—";
+    const n = ((deg % 360) + 360) % 360;
+    if (n >= 337.5 || n < 22.5) return "شمال";
+    if (n < 67.5) return "شمال شرق";
+    if (n < 112.5) return "شرق";
+    if (n < 157.5) return "جنوب شرق";
+    if (n < 202.5) return "جنوب";
+    if (n < 247.5) return "جنوب غرب";
+    if (n < 292.5) return "غرب";
+    return "شمال غرب";
+  }
+
+  function computeBearingDeg(from, to) {
+    const rad = Math.PI / 180;
+    const lat1 = from.lat * rad, lat2 = to.lat * rad;
+    const dLng = (to.lng - from.lng) * rad;
+    const y = Math.sin(dLng) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLng);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  }
+
+  function smoothAngle(prevDeg, nextDeg, alpha = 0.25) {
+    if (prevDeg === null || !Number.isFinite(prevDeg)) return ((nextDeg % 360) + 360) % 360;
+    let diff = ((nextDeg - prevDeg + 540) % 360) - 180;
+    return ((prevDeg + diff * alpha) + 360) % 360;
+  }
+
+  let lastCompassPaintAt = 0;
+  function applyHeading(rawDeg, source) {
+    const st = K.state;
+    if (typeof rawDeg !== "number" || !Number.isFinite(rawDeg)) return;
+    st.gps.heading = smoothAngle(st.gps.heading, rawDeg, source === "compass" ? 0.24 : 0.45);
+    st.gps.headingSource = source;
+    const now = Date.now();
+    if (now - lastCompassPaintAt >= 65) {
+      lastCompassPaintAt = now;
+      K.Map.updateHeadingVisualOnly();
+    }
+  }
+
+  function onDeviceOrientationEvent(e) {
+    let heading = null;
+    if (typeof e.webkitCompassHeading === "number" && Number.isFinite(e.webkitCompassHeading)) {
+      heading = e.webkitCompassHeading; // iOS Safari
+    } else if (typeof e.alpha === "number" && Number.isFinite(e.alpha)) {
+      // Android Chrome absolute compass heading (adjusted for screen orientation)
+      const screenAngle = (window.screen?.orientation?.angle ?? window.orientation ?? 0) || 0;
+      heading = (360 - e.alpha + screenAngle) % 360;
+    }
+    if (heading !== null) {
+      K.state.gps.compassActive = true;
+      applyHeading(heading, "compass");
+    }
+  }
+
+  let compassBound = false;
+  async function startCompass(fromUserGesture = false) {
+    try {
+      if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+        if (!fromUserGesture) return; // iOS requires button click
+        const perm = await DeviceOrientationEvent.requestPermission();
+        if (perm !== "granted") {
+          K.showToast("⚠️ رفضت إذن البوصلة — الاتجاه هيشتغل تلقائي وإنت ماشي بالـ GPS");
+          return;
+        }
+      }
+      if (!compassBound) {
+        compassBound = true;
+        if ("ondeviceorientationabsolute" in window) {
+          window.addEventListener("deviceorientationabsolute", onDeviceOrientationEvent, true);
+        } else {
+          window.addEventListener("deviceorientation", onDeviceOrientationEvent, true);
+        }
+      }
+      if (fromUserGesture) K.showToast("🧭 البوصلة شغالة! لف موبايلك وهتشوف مخروط الاتجاه بيلف معاك");
+    } catch {}
+  }
+
+  // Accuracy-weighted Kalman-like GPS smoother (kills jitter & teleports!)
+  function applyKalmanGps(rawLat, rawLng, rawAcc, nowMs) {
+    const f = K.state.gps.filter;
+    const acc = Math.max(3, rawAcc || 20);
+    if (f.lat === null || f.ts === 0) {
+      f.lat = rawLat;
+      f.lng = rawLng;
+      f.variance = acc * acc;
+      f.ts = nowMs;
+      return { lat: f.lat, lng: f.lng, accuracyMeters: Math.round(acc) };
+    }
+    const dtSec = Math.max(0.2, (nowMs - f.ts) / 1000);
+    const jumpDist = K.Geo.distanceMeters({ lat: f.lat, lng: f.lng }, { lat: rawLat, lng: rawLng });
+    const impliedSpeed = jumpDist / dtSec;
+
+    // Reject obvious cell-tower teleports (>18 m/s = 65 km/h) if we already had a decent fix
+    if (impliedSpeed > 18 && acc > 20 && Math.sqrt(f.variance) < 25) {
+      return null;
+    }
+
+    // Reject very noisy readings (>50m) if we received a much cleaner reading within last 12s
+    if (acc > 50 && dtSec < 12 && Math.sqrt(f.variance) < 20) {
+      return null;
+    }
+
+    // Predict variance growth (~3 m/s walking/jogging process noise)
+    const Q = 3.0;
+    f.variance += dtSec * Q * Q;
+
+    // Kalman gain K blends old estimate with new reading based on accuracy^2
+    const measVar = acc * acc;
+    const gain = f.variance / (f.variance + measVar);
+    f.lat += gain * (rawLat - f.lat);
+    f.lng += gain * (rawLng - f.lng);
+    f.variance = (1 - gain) * f.variance;
+    f.ts = nowMs;
+
+    return { lat: f.lat, lng: f.lng, accuracyMeters: Math.round(acc) };
+  }
+
+  function recalibrateGps() {
+    const st = K.state;
+    if (st.gps.watchId !== null && "geolocation" in navigator) {
+      navigator.geolocation.clearWatch(st.gps.watchId);
+      st.gps.watchId = null;
+    }
+    st.gps.filter = { lat: null, lng: null, variance: 9999, ts: 0 };
+    st.gps.bestCenterAcc = Infinity;
+    K.showToast("📡 بنعيد معايرة الـ GPS على أعلى دقة...");
+    startRealGps();
+    void startCompass(true);
+  }
+
   function startRealGps() {
     const st = K.state;
     if (!("geolocation" in navigator)) {
@@ -92,37 +235,54 @@ window.Kameen = window.Kameen || {};
       K.UI.updateGpsStatusDOM();
       return;
     }
+    void startCompass(false);
     if (st.gps.watchId !== null) return;
     st.gps.status = "requesting";
     K.UI.updateGpsStatusDOM();
 
     st.gps.watchId = navigator.geolocation.watchPosition(
       (pos) => {
-        const acc = Math.round(pos.coords.accuracy);
-        // Filter noisy GPS jumps during an active real match (>35m accuracy ignored after initial lock)
-        if (st.engine && !st.isSimMode && st.gps.centeredOnce && acc > 35) {
+        const now = Date.now();
+        const rawAcc = Math.round(pos.coords.accuracy || 25);
+        st.gps.status = "granted";
+        st.gps.error = null;
+
+        const prevCoords = { ...st.gps.coords };
+        const smoothed = applyKalmanGps(pos.coords.latitude, pos.coords.longitude, rawAcc, now);
+        if (!smoothed) {
+          // Still show current raw accuracy status if we haven't displayed one
+          if (st.gps.accuracy === null) { st.gps.accuracy = rawAcc; K.UI.updateGpsStatusDOM(); }
           return;
         }
-        st.gps.status = "granted";
-        st.gps.accuracy = acc;
-        st.gps.error = null;
-        if (!st.isSimMode) {
-          st.gps.coords = {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            accuracyMeters: acc,
-          };
+
+        st.gps.accuracy = smoothed.accuracyMeters;
+
+        // Heading fallback from GPS when compass isn't active & player moved >= 2m
+        if (!st.gps.compassActive) {
+          if (typeof pos.coords.heading === "number" && Number.isFinite(pos.coords.heading) && (pos.coords.speed || 0) > 0.6) {
+            applyHeading(pos.coords.heading, "gps");
+          } else if (st.gps.centeredOnce && K.Geo.distanceMeters(prevCoords, smoothed) >= 2.2) {
+            applyHeading(computeBearingDeg(prevCoords, smoothed), "gps");
+          }
         }
-        if (!st.gps.centeredOnce) {
-          st.createForm.center = { lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyMeters: acc };
-          if (st.leafletMap && !st.isSimMode) st.leafletMap.setView([pos.coords.latitude, pos.coords.longitude], 17);
+
+        if (!st.isSimMode) {
+          st.gps.coords = smoothed;
+        }
+
+        // Auto-center on first fix, AND refine center automatically if a much better fix arrives before user taps
+        if (!st.gps.centeredOnce || (!st.gps.userPickedZone && rawAcc + 5 < st.gps.bestCenterAcc && st.route === "create")) {
+          st.gps.bestCenterAcc = rawAcc;
+          st.createForm.center = { ...smoothed };
+          if (st.leafletMap && !st.isSimMode) st.leafletMap.setView([smoothed.lat, smoothed.lng], 18);
           st.gps.centeredOnce = true;
         }
-        const now = Date.now();
-        if (st.engine && !st.isSimMode && now - st.gps.lastSentAt >= 1400) {
+
+        if (st.engine && !st.isSimMode && now - st.gps.lastSentAt >= 1200) {
           st.gps.lastSentAt = now;
           dispatchAction("UPDATE_LOC", { coords: st.gps.coords });
         }
+
         K.UI.updateGpsStatusDOM();
         if (st.route === "game" || st.route === "create") K.Map.updateLayers();
       },
@@ -132,10 +292,10 @@ window.Kameen = window.Kameen || {};
           ? "رفضت إذن الموقع — افتحه من إعدادات المتصفح"
           : (location.protocol !== "https:" && location.hostname !== "localhost")
             ? "الـ GPS محتاج رابط HTTPS (جيت هاب / فيرسل بيدعمه!)"
-            : "لسه بيلقط إشارة GPS...";
+            : "لسه بيلقط إشارة GPS — اخرج لمكان مفتوح لو جوه البيت";
         K.UI.updateGpsStatusDOM();
       },
-      { enableHighAccuracy: true, maximumAge: 2500, timeout: 15000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
     );
   }
 
@@ -159,11 +319,16 @@ window.Kameen = window.Kameen || {};
   function handleMapTap(clicked) {
     const st = K.state;
     if (st.route === "create") {
+      st.gps.userPickedZone = true;
       st.createForm.center = clicked;
       void K.Map.fetchOverpassPOIs(clicked, st.createForm.radius);
       K.Map.updateLayers();
       K.showToast("📍 تمام! مركز الزون اتحرك للمكان ده");
     } else if (st.route === "simulation" && st.engine) {
+      const prev = st.engine.getVisibleStateForPlayer(st.user.id).self.coords;
+      if (K.Geo.distanceMeters(prev, clicked) >= 1) {
+        applyHeading(computeBearingDeg(prev, clicked), "sim");
+      }
       st.gps.coords = clicked;
       dispatchAction("UPDATE_LOC", { coords: clicked });
       K.Map.updateLayers();
@@ -175,7 +340,7 @@ window.Kameen = window.Kameen || {};
     const st = K.state;
     st.route = nextRoute;
     const isMap = nextRoute === "create" || nextRoute === "game" || nextRoute === "simulation";
-    document.getElementById("page-root").classList.toggle("hidden", isMap);
+    document.getElementById("app-shell").classList.toggle("hidden", isMap);
     document.getElementById("map-screen").classList.toggle("hidden", !isMap);
 
     if (nextRoute === "game" || nextRoute === "simulation") {
@@ -253,25 +418,28 @@ window.Kameen = window.Kameen || {};
       case "PROTECT":
         res = st.engine.activateProtection(playerId, t);
         break;
+      case "BLOODHOUND":
+        res = st.engine.activateBloodhound(playerId);
+        break;
       case "DECOY":
         res = st.engine.activateDecoy(playerId, t);
+        break;
+      case "PLANT_RUMOR":
+        res = st.engine.activatePlantRumor(playerId, t);
         break;
       case "JAMMER":
         res = st.engine.activateJammer(playerId, t);
         if (res.ok) K.SFX.play("alarm");
         break;
-      case "MISLEAD":
-        res = st.engine.requestMisleadingInfo(playerId);
-        break;
       case "LOC_Q":
-        res = st.engine.requestLocationQuestion(playerId, data.sector);
+        res = st.engine.requestLocationQuestion(playerId, data.placeId);
         break;
       case "BOLD_HINT":
         res = st.engine.requestBoldHint(playerId);
         if (res.ok && res.meta) {
           const aiHint = await K.AI.callGroqChat(
             "أنت المحلل النفسي في لعبة مطاردة شعبية اسمها كمين. رد بجملة واحدة روشة ومشوقة بالعامية المصرية بدون أي أسماء لاعبين.",
-            `اكتب تلميح جريء يقول إن الغدّار موجود في ${res.meta.sector} على بعد حوالي ${res.meta.dist} متر ناحية ${res.meta.dir}.`
+            `اكتب تلميح جريء يقول إن الغدّار موجود ${res.meta.place} على بعد حوالي ${res.meta.dist} متر. ممنوع تقول قطاع شمالي أو جنوبي.`
           );
           if (aiHint) res.intelText = "🔥 المحلل بيهمسلك: " + aiHint;
         }
@@ -347,7 +515,7 @@ window.Kameen = window.Kameen || {};
     if (snap.activeAirdrop && snap.activeAirdrop.id !== st.lastAirdropIdNotified) {
       st.lastAirdropIdNotified = snap.activeAirdrop.id;
       K.SFX.play("airdrop");
-      K.showToast(`💼 شنطة إمداد ذهبية نزلت في ${snap.activeAirdrop.sector}! اجري القطها!`, 4500);
+      K.showToast(`💼 شنطة إمداد ذهبية نزلت ${snap.activeAirdrop.place}! اجري القطها!`, 4500);
     }
 
     if (snap.aiReports && snap.aiReports.length > 0) {
@@ -432,10 +600,9 @@ window.Kameen = window.Kameen || {};
       if (st.route === "game" || st.route === "simulation") {
         K.Map.updateLayers();
         K.UI.updateHudOnly();
+        if (st.modal === "missions_sheet") K.UI.updateMissionsDynamic();
       } else if (st.route === "meeting") {
         K.UI.updateMeetingDynamic();
-      } else if (st.route === "missions") {
-        K.UI.updateMissionsDynamic();
       }
     }, 1000);
   }
@@ -671,11 +838,16 @@ window.Kameen = window.Kameen || {};
     st.simRunning = true;
     st.simDpadVisible = false;
     st.simTimeMs = t0;
+    const initialPois = (st.createForm.pois && st.createForm.pois.length >= 2)
+      ? st.createForm.pois
+      : K.Geo.generateFallbackPOIs(center, 220);
     st.engine = new K.KameenEngine({
       matchId: "sim-lab-" + t0, code: "SIM001", hostId: st.user.id, title: "مختبر المحاكاة",
       zoneCenter: center, zoneRadiusMeters: 220, durationMinutes: 15, spreadSeconds: 25,
-      imposterCount: 1, pois: K.Geo.generateFallbackPOIs(center, 220), seed: t0,
+      imposterCount: 1, pois: initialPois, seed: t0,
     }, bots, t0);
+    // Fetch real street & landmark names from the map around current GPS for Simulation too!
+    void K.Map.fetchOverpassPOIs(center, 220, true);
     st.roleRevealed = false;
     st.roleFlipped = false;
     st.eliminatedAck = false;
@@ -694,12 +866,13 @@ window.Kameen = window.Kameen || {};
   window.onClaimAirdrop = () => dispatchAction("CLAIM_AIRDROP");
   window.onAcceptBroker = (choice) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("BROKER", { choice }); };
   window.onUseAbility = (type) => { K.state.modal = null; K.UI.renderModal(); dispatchAction(type); };
-  window.onScanSector = (sector) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("LOC_Q", { sector }); };
+  window.onScanPlace = (placeId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("LOC_Q", { placeId }); };
   window.onSpokenName = (accusedId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("SPOKEN", { accusedId }); };
 
   window.onStartMission = (missionId) => {
+    K.state.modal = null;
+    K.UI.renderModal();
     dispatchAction("MISSION_START", { missionId });
-    navigate(K.state.isSimMode ? "simulation" : "game");
   };
 
   window.openCameraForMission = (missionId) => {
@@ -741,6 +914,7 @@ window.Kameen = window.Kameen || {};
     if (!K.state.engine) return;
     const cur = K.state.engine.getVisibleStateForPlayer(K.state.user.id).self.coords;
     const next = K.Geo.offsetCoordinates(cur, dNorth, dEast);
+    applyHeading(computeBearingDeg(cur, next), "sim");
     K.state.gps.coords = next;
     dispatchAction("UPDATE_LOC", { coords: next });
   };
@@ -794,9 +968,15 @@ window.Kameen = window.Kameen || {};
     }
   });
 
+  window.onRecalibrateGps = () => recalibrateGps();
+  window.onEnableCompass = () => { void startCompass(true); };
+
   K.App = {
     isMatchHost,
     startRealGps,
+    recalibrateGps,
+    startCompass,
+    headingToArabic,
     requestCameraPerm,
     handleMapTap,
     navigate,

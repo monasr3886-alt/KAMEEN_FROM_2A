@@ -6,8 +6,7 @@ window.Kameen = window.Kameen || {};
   K.CONFIG = {
     LOGO_PATH: "./logo.jpg",
     DEFAULT_CENTER: { lat: 29.9753, lng: 30.9455, accuracyMeters: 6 },
-    // تم ترك مفتاح Groq فارغ هنا عشان GitHub ميمنعش الرفع؛ اكتبه مرة واحدة من (⚙️ إعدادات) داخل اللعبة وهيتحفظ على موبايلك
-    DEFAULT_GROQ_KEY: "",
+    DEFAULT_GROQ_KEY: "", // الصقه مرة واحدة من الإعدادات جوه التطبيق (مش بيترفع على GitHub)
     SUPABASE_URL: "https://raxycqblimomlwfcwxml.supabase.co",
     SUPABASE_KEY: "sb_publishable_4Y6UnQ9dr4yoBPyme7smYg_7oTDlxKr",
   };
@@ -16,30 +15,35 @@ window.Kameen = window.Kameen || {};
     ZONE_SHRINK_INTERVAL_MS: 180000,   // كل 3 دقايق الزون تصغر 25%
     ZONE_SHRINK_FACTOR: 0.75,
     OUTSIDE_ZONE_GRACE_MS: 20000,      // 20 ثانية بره الزون وتطير
-    ACTIVE_START_GRACE_MS: 25000,      // 25 ثانية أمان بعد التشتيت عشان الجيم ميخلصش فجأة!
-    REVEAL_INTERVAL_MS: 180000,        // رادار كشف الأماكن كل 3 دقايق
+    ACTIVE_START_GRACE_MS: 25000,      // 25 ثانية أمان بعد التشتيت
+    REVEAL_INTERVAL_MS: 180000,        // رادار عام كل 3 دقايق
     REVEAL_DURATION_MS: 20000,
-    SHOWDOWN_REVEAL_INTERVAL_MS: 45000,// في الخاتمة السخنة: رادار كل 45 ثانية!
+    SHOWDOWN_REVEAL_INTERVAL_MS: 45000,// في الخاتمة السخنة: رادار كل 45 ثانية
     SHOWDOWN_REVEAL_DURATION_MS: 8000,
-    KILL_COOLDOWN_MS: 80000,
-    SHOWDOWN_KILL_COOLDOWN_MS: 45000,
+    KILL_COOLDOWN_MS: 75000,
+    SHOWDOWN_KILL_COOLDOWN_MS: 40000,
     KILL_BASE_DISTANCE_M: 8,
-    NEARBY_TARGET_DISTANCE_M: 38,
+    NEARBY_TARGET_DISTANCE_M: 40,
     REPORT_BODY_DISTANCE_M: 20,
     MISSION_RANGE_M: 30,
-    AIRDROP_INTERVAL_MS: 135000,       // شنطة إمداد ذهبية كل دقيقتين وربع
+    AIRDROP_INTERVAL_MS: 135000,
     AIRDROP_DURATION_MS: 75000,
     AIRDROP_CLAIM_RANGE_M: 24,
     AIRDROP_REWARD_POINTS: 45,
-    PROTECTION_COST: 10,
-    PROTECTION_DURATION_MS: 12000,
-    DECOY_COST: 25,
-    DECOY_DURATION_MS: 15000,
-    JAMMER_COST: 35,
-    JAMMER_DELAY_MS: 75000,
-    MISLEADING_INFO_COST: 5,
+    // Investigator Powers (أدوات المحقق)
+    PROTECTION_COST: 15,
+    PROTECTION_DURATION_MS: 15000,
     LOCATION_QUESTION_COST: 20,
-    BOLD_HINT_COST: 65,
+    BOLD_HINT_COST: 60,
+    SPOKEN_PENALTY_POINTS: 25,
+    // Imposter Powers (ألاعيب الغدار)
+    BLOODHOUND_COST: 20,               // رادار الصيد: أقرب ضحية
+    DECOY_COST: 25,                    // إشارة حمرا وهمية
+    DECOY_DURATION_MS: 15000,
+    PLANT_RUMOR_COST: 15,              // تسريب إشاعة مضللة للكل
+    JAMMER_COST: 35,                   // تكتيم المحلل وفصل الرادار
+    JAMMER_DELAY_MS: 75000,
+    // Broker Secret Deals
     BROKER_MINUTE_4_MS: 210000,
     BROKER_MINUTE_8_MS: 450000,
     BROKER_RED_BROADCAST_MS: 15000,
@@ -60,12 +64,12 @@ window.Kameen = window.Kameen || {};
 
   K.BOT_SLANG_LINES = [
     "والله العظيم ما أنا يا جدعان كنت رايح أخلص مهمتي!",
-    "يا عم أنا لمحت واحد طار جري في الشمال من شوية!",
+    "يا عم أنا لمحت واحد طار جري من قدامي من شوية!",
     "اللي ساكت ومش بيتكلم ده هو الغدّار على ضمانتي 👀",
-    "اقروا تقرير المحلل تاني يا رجالة قبل ما نطرد حد بريء!",
+    "اقروا تقرير المحلل تاني يا رجالة شوفوا مين كان قريب من المكان!",
     "استنوا نعمل تخطي المرة دي عشان مفيش دليل أكيد.",
-    "أنا كنت في القطاع الشرقي ومكنش في حد جنبي خالص!",
-    "يا جدعان في حد كان مكمبر عند الناصية.. اعترف مين؟ 😂",
+    "أنا كنت لوحدي بعيد ومكنش في حد جنبي خالص!",
+    "يا جدعان في حد كان مكمبر مكانه بقاله حبة.. اعترف مين؟ 😂",
     "لو طردتوني هتندموا والغدّار هيكسب الجيم!",
   ];
 
@@ -73,17 +77,9 @@ window.Kameen = window.Kameen || {};
     "والله ما أنا! 😂",
     "كنت بعمل مهمة 🎯",
     "شاكك في الساكت 👀",
-    "مين كان في الشمال؟",
+    "مين كان قريب من المكان؟",
     "تخطي يا جدعان ⏭️",
     "اقفشوه هو الغدّار! 🔪"
-  ];
-
-  K.SECTORS = [
-    "القطاع الشمالي",
-    "القطاع الجنوبي",
-    "القطاع الشرقي",
-    "القطاع الغربي",
-    "القطاع المركزي"
   ];
 
   K.SFX = {
@@ -122,12 +118,11 @@ window.Kameen = window.Kameen || {};
         else if (type === "broker") { tone(520, 0.09, 0, "triangle"); tone(780, 0.11, 0.1, "triangle"); tone(1040, 0.2, 0.22, "triangle"); if (navigator.vibrate) navigator.vibrate([90, 60, 110]); }
         else if (type === "airdrop") { tone(587, 0.1, 0, "triangle"); tone(880, 0.18, 0.11, "triangle"); if (navigator.vibrate) navigator.vibrate([80, 50, 80]); }
         else if (type === "win") { tone(523, 0.13, 0); tone(659, 0.13, 0.14); tone(784, 0.24, 0.28); }
-        else if (type === "click") { tone(540, 0.045, 0, "sine", 0.06); }
+        else if (type === "click") { tone(540, 0.04, 0, "sine", 0.055); if (navigator.vibrate) navigator.vibrate(10); }
       } catch {}
     }
   };
 
-  // Screen Wake Lock (keeps phone screen awake while playing in the street)
   K.WakeLock = {
     sentinel: null,
     async acquire() {
@@ -153,6 +148,10 @@ window.Kameen = window.Kameen || {};
   K.setDangerVignette = function (active) {
     const el = document.getElementById("danger-vignette");
     if (el) el.classList.toggle("hidden", !active);
+  };
+
+  K.setBodyRoleTheme = function (roleTheme) {
+    document.body.setAttribute("data-role", roleTheme || "neutral");
   };
 
   K.getAvatarColor = function (name) {

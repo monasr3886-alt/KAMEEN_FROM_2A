@@ -77,7 +77,7 @@ window.Kameen = window.Kameen || {};
 
     const map = window.L.map(el, {
       center: [center.lat, center.lng],
-      zoom: 17,
+      zoom: 18,
       zoomControl: false,
       attributionControl: false,
     });
@@ -87,6 +87,7 @@ window.Kameen = window.Kameen || {};
     });
 
     st.leafletGroup = window.L.layerGroup().addTo(map);
+    st.leafletSelfGroup = window.L.layerGroup().addTo(map);
     st.leafletMap = map;
     applyTileLayer();
     setTimeout(() => map.invalidateSize(true), 150);
@@ -99,43 +100,225 @@ window.Kameen = window.Kameen || {};
       : (st.engine ? st.engine.getVisibleStateForPlayer(st.user.id).self.coords : st.gps.coords);
     if (st.leafletMap) {
       st.leafletMap.invalidateSize(true);
-      st.leafletMap.setView([c.lat, c.lng], 17, { animate: true });
+      st.leafletMap.setView([c.lat, c.lng], 18, { animate: true });
     }
   }
 
-  async function fetchOverpassPOIs(center, radius) {
-    const query = `[out:json][timeout:6];(node["leisure"~"park|playground"](around:${radius},${center.lat},${center.lng});node["amenity"~"cafe|place_of_worship|bench|pharmacy"](around:${radius},${center.lat},${center.lng});node["shop"](around:${radius},${center.lat},${center.lng}););out 25;`;
-    try {
-      const res = await fetch("https://overpass-api.de/api/interpreter", {
-        method: "POST",
-        body: "data=" + encodeURIComponent(query),
-      });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
-      const pois = (data.elements || [])
-        .filter((el) => el.lat && el.lon && (!el.tags || el.tags.access !== "private"))
-        .slice(0, 14)
-        .map((el) => ({
-          id: "osm-" + el.id,
-          name: (el.tags && (el.tags["name:ar"] || el.tags.name)) || "نقطة في الحي",
-          category: "landmark",
-          lat: el.lat,
-          lng: el.lon,
-        }));
-      if (pois.length >= 3) {
-        K.state.createForm.pois = pois;
-        K.state.createForm.poiSource = "خريطة حقيقية 🗺️";
-      } else {
-        throw new Error("few");
-      }
-    } catch {
-      K.state.createForm.pois = K.Geo.generateFallbackPOIs(center, radius);
-      K.state.createForm.poiSource = "نقاط ذكية 📍";
+  function buildSelfMarkerIcon(colorHex, isImp, headingDeg) {
+    const hasHeading = typeof headingDeg === "number" && Number.isFinite(headingDeg);
+    const deg = hasHeading ? Math.round(headingDeg) : 0;
+    const coneOpacity = hasHeading ? 1 : 0;
+    const gradId = isImp ? "coneGradImp" : "coneGradInv";
+    const html = `
+      <div class="self-marker-box">
+        <svg class="self-heading-cone" id="live-heading-cone" viewBox="0 0 68 68" width="68" height="68"
+          style="opacity:${coneOpacity};transform:rotate(${deg}deg);">
+          <defs>
+            <radialGradient id="${gradId}" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="${colorHex}" stop-opacity="0.72" />
+              <stop offset="100%" stop-color="${colorHex}" stop-opacity="0" />
+            </radialGradient>
+          </defs>
+          <path d="M 34 34 L 15 5 A 34 34 0 0 1 53 5 Z" fill="url(#${gradId})" />
+          <polygon points="34,7 29,17 39,17" fill="#FFFFFF" opacity="0.92" />
+        </svg>
+        <div class="self-core-dot ${isImp ? "imposter" : ""}" style="background:${colorHex};"></div>
+      </div>
+    `;
+    return window.L.divIcon({
+      className: "self-marker-wrap",
+      html,
+      iconSize: [68, 68],
+      iconAnchor: [34, 34],
+    });
+  }
+
+  // Ultra-fast heading rotation without rebuilding Leaflet layers
+  function updateHeadingVisualOnly() {
+    const st = K.state;
+    const deg = st.gps.heading;
+    if (typeof deg !== "number" || !Number.isFinite(deg)) return;
+
+    const cone = document.getElementById("live-heading-cone");
+    if (cone) {
+      cone.style.opacity = "1";
+      cone.style.transform = `rotate(${Math.round(deg)}deg)`;
     }
+    const radarCone = document.getElementById("radar-heading-cone");
+    if (radarCone) {
+      const cx = radarCone.dataset.cx || "200";
+      const cy = radarCone.dataset.cy || "350";
+      radarCone.setAttribute("transform", `rotate(${Math.round(deg)} ${cx} ${cy})`);
+      radarCone.style.opacity = "1";
+    }
+    const compassEl = document.getElementById("hud-compass-lbl");
+    if (compassEl) {
+      compassEl.textContent = "🧭 " + K.App.headingToArabic(deg);
+    }
+  }
+
+  function updateSelfMarkerOnMap(coords, colorHex, isImp, label) {
+    const st = K.state;
+    if (!st.leafletMap || !st.leafletSelfGroup) return;
+    const acc = coords.accuracyMeters || st.gps.accuracy || 10;
+
+    if (!st.selfAccuracyCircle) {
+      st.selfAccuracyCircle = window.L.circle([coords.lat, coords.lng], {
+        radius: Math.min(acc, 80),
+        color: colorHex,
+        weight: 1,
+        fillColor: colorHex,
+        fillOpacity: 0.12,
+      }).addTo(st.leafletSelfGroup);
+    } else {
+      st.selfAccuracyCircle.setLatLng([coords.lat, coords.lng]);
+      st.selfAccuracyCircle.setRadius(Math.min(acc, 80));
+      st.selfAccuracyCircle.setStyle({ color: colorHex, fillColor: colorHex });
+    }
+
+    const colorKey = colorHex + (isImp ? "_1" : "_0");
+    if (!st.selfMarker) {
+      st.selfMarker = window.L.marker([coords.lat, coords.lng], {
+        icon: buildSelfMarkerIcon(colorHex, isImp, st.gps.heading),
+        zIndexOffset: 1000,
+        interactive: false,
+      }).addTo(st.leafletSelfGroup);
+      st.selfMarkerColorKey = colorKey;
+    } else {
+      st.selfMarker.setLatLng([coords.lat, coords.lng]);
+      if (st.selfMarkerColorKey !== colorKey) {
+        st.selfMarker.setIcon(buildSelfMarkerIcon(colorHex, isImp, st.gps.heading));
+        st.selfMarkerColorKey = colorKey;
+      } else {
+        updateHeadingVisualOnly();
+      }
+    }
+  }
+
+  async function fetchOverpassPOIs(center, radius, applyToActiveEngine = false) {
+    const searchR = Math.min(1100, Math.max(radius + 90, 260));
+    const query =
+      `[out:json][timeout:8];(` +
+      `nwr["name"]["amenity"~"mosque|place_of_worship|cafe|restaurant|fast_food|pharmacy|bank|school|hospital|clinic|marketplace|fuel|parking|cinema|library"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["shop"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["leisure"~"park|playground|sports_centre|stadium|garden|club"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["building"~"mosque|commercial|mall|school|university|hospital"](around:${searchR},${center.lat},${center.lng});` +
+      `way["name"]["highway"~"primary|secondary|tertiary|residential|unclassified|pedestrian"](around:${searchR},${center.lat},${center.lng});` +
+      `);out center 60;`;
+
+    const mirrors = [
+      "https://overpass-api.de/api/interpreter",
+      "https://overpass.kumi.systems/api/interpreter",
+    ];
+
+    let realPois = [];
+    for (const endpoint of mirrors) {
+      try {
+        const ctrl = new AbortController();
+        const tm = setTimeout(() => ctrl.abort(), 7500);
+        const res = await fetch(endpoint, {
+          method: "POST",
+          signal: ctrl.signal,
+          body: "data=" + encodeURIComponent(query),
+        });
+        clearTimeout(tm);
+        if (!res.ok) continue;
+        const data = await res.json();
+        const seenNames = new Set();
+        const landmarks = [];
+        const streets = [];
+
+        for (const el of (data.elements || [])) {
+          if (el.tags && el.tags.access === "private") continue;
+          const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
+          const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
+          if (typeof lat !== "number" || typeof lng !== "number") continue;
+
+          const rawName = (el.tags && (el.tags["name:ar"] || el.tags.name || el.tags["alt_name:ar"])) || "";
+          const cleanName = rawName.trim();
+          if (!cleanName || cleanName.length < 2) continue;
+
+          const isStreet = Boolean(el.tags && el.tags.highway && !el.tags.amenity && !el.tags.shop && !el.tags.leisure);
+          const displayName = isStreet && !/^(شارع|طريق|محور|ميدان|كوبري|حارة|زقاق|ممر)/.test(cleanName)
+            ? `شارع ${cleanName}`
+            : cleanName;
+
+          const key = displayName.toLowerCase();
+          if (seenNames.has(key)) continue;
+          seenNames.add(key);
+
+          const item = {
+            id: "osm-" + el.id,
+            name: displayName,
+            category: isStreet ? "street" : "landmark",
+            lat,
+            lng,
+            isReal: true,
+          };
+          if (isStreet) streets.push(item);
+          else landmarks.push(item);
+        }
+
+        // Prioritize real landmarks (mosques, shops, cafes, parks) first, then fill with real street names
+        realPois = [...landmarks.slice(0, 14), ...streets.slice(0, 8)].slice(0, 18);
+        if (realPois.length >= 2) break;
+      } catch {}
+    }
+
+    // Secondary backup: Nominatim reverse geocode for the exact street/neighborhood name
+    if (realPois.length < 2) {
+      try {
+        const ctrl = new AbortController();
+        const tm = setTimeout(() => ctrl.abort(), 5000);
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${center.lat}&lon=${center.lng}&accept-language=ar`,
+          { signal: ctrl.signal }
+        );
+        clearTimeout(tm);
+        if (res.ok) {
+          const j = await res.json();
+          const addr = j.address || {};
+          const road = addr.road || addr.pedestrian || addr.suburb || addr.neighbourhood;
+          if (road) {
+            realPois.push({
+              id: "nom-center",
+              name: /^(شارع|طريق|ميدان|حي)/.test(road) ? road : `شارع ${road}`,
+              category: "street",
+              lat: center.lat,
+              lng: center.lng,
+              isReal: true,
+            });
+          }
+        }
+      } catch {}
+    }
+
+    if (realPois.length >= 2) {
+      K.state.createForm.pois = realPois;
+      K.state.createForm.poiSource = `معالم حقيقية (${realPois.length}) 🗺️`;
+      if (applyToActiveEngine && K.state.engine) {
+        K.state.engine.setPOIs(realPois);
+      }
+    } else if (realPois.length === 1) {
+      const merged = [realPois[0], ...K.Geo.generateFallbackPOIs(center, radius).slice(0, 7)];
+      K.state.createForm.pois = merged;
+      K.state.createForm.poiSource = "خريطة + معالم المنطقة 📍";
+      if (applyToActiveEngine && K.state.engine) {
+        K.state.engine.setPOIs(merged);
+      }
+    } else {
+      K.state.createForm.pois = K.Geo.generateFallbackPOIs(center, radius);
+      K.state.createForm.poiSource = "معالم محلية 📍";
+    }
+
     if (K.state.route === "create") {
       updateLayers();
       K.UI.updateHudOnly();
+    } else if (applyToActiveEngine && (K.state.route === "game" || K.state.route === "simulation")) {
+      updateLayers();
+      K.UI.updateHudOnly();
     }
+    return K.state.createForm.pois;
   }
 
   function renderFallbackRadar() {
@@ -154,11 +337,17 @@ window.Kameen = window.Kameen || {};
       y: 350 - (c.lat - base.lat) * 111320 * scale,
     });
 
+    const heading = typeof st.gps.heading === "number" && Number.isFinite(st.gps.heading) ? Math.round(st.gps.heading) : null;
+
     let shapes = `
       <defs>
         <pattern id="rgrid" width="28" height="28" patternUnits="userSpaceOnUse">
           <path d="M 28 0 L 0 0 0 28" fill="none" stroke="rgba(0,212,255,0.1)" stroke-width="1"/>
         </pattern>
+        <radialGradient id="radarBeam" cx="50%" cy="100%" r="100%">
+          <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.65" />
+          <stop offset="100%" stop-color="#00D4FF" stop-opacity="0" />
+        </radialGradient>
       </defs>
       <rect width="400" height="700" fill="#05070B"/>
       <rect width="400" height="700" fill="url(#rgrid)"/>
@@ -171,6 +360,11 @@ window.Kameen = window.Kameen || {};
         const pt = proj(p);
         shapes += `<circle cx="${pt.x}" cy="${pt.y}" r="5" fill="#F8FAFC" stroke="#6E1517" stroke-width="2"/>`;
       });
+      const me = proj(st.gps.coords);
+      shapes += `<g id="radar-heading-cone" data-cx="${me.x}" data-cy="${me.y}" style="opacity:${heading !== null ? 1 : 0};" transform="rotate(${heading || 0} ${me.x} ${me.y})">
+        <path d="M ${me.x} ${me.y} L ${me.x - 18} ${me.y - 36} A 40 40 0 0 1 ${me.x + 18} ${me.y - 36} Z" fill="url(#radarBeam)"/>
+      </g>`;
+      shapes += `<circle cx="${me.x}" cy="${me.y}" r="8" fill="#00D4FF" stroke="#FFFFFF" stroke-width="2.5"/>`;
     } else if (st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const isSpread = vis.phase === "SPREAD";
@@ -210,7 +404,12 @@ window.Kameen = window.Kameen || {};
           shapes += `<circle cx="${pt.x}" cy="${pt.y}" r="7.5" fill="${p.isRedBrokerBroadcast ? "#FF2E54" : "#00D4FF"}" stroke="#fff" stroke-width="2"/>`;
         });
       }
-      shapes += `<circle cx="${sc.x}" cy="${sc.y}" r="9.5" fill="${vis.self.role === "IMPOSTER" ? "#FF2E54" : "#00D4FF"}" stroke="#FFFFFF" stroke-width="3"/>`;
+      const selfColor = !vis.self.alive ? "#64748B" : (vis.self.role === "IMPOSTER" ? "#FF2E54" : "#00D4FF");
+      shapes += `<g id="radar-heading-cone" data-cx="${sc.x}" data-cy="${sc.y}" style="opacity:${heading !== null ? 1 : 0};" transform="rotate(${heading || 0} ${sc.x} ${sc.y})">
+        <path d="M ${sc.x} ${sc.y} L ${sc.x - 18} ${sc.y - 36} A 40 40 0 0 1 ${sc.x + 18} ${sc.y - 36} Z" fill="${selfColor}" opacity="0.38"/>
+        <polygon points="${sc.x},${sc.y - 28} ${sc.x - 5},${sc.y - 19} ${sc.x + 5},${sc.y - 19}" fill="#FFFFFF"/>
+      </g>`;
+      shapes += `<circle cx="${sc.x}" cy="${sc.y}" r="9.5" fill="${selfColor}" stroke="#FFFFFF" stroke-width="3"/>`;
     }
 
     svg.innerHTML = shapes;
@@ -245,6 +444,7 @@ window.Kameen = window.Kameen || {};
           radius: 5.5, color: "#6E1517", weight: 2, fillColor: "#F8FAFC", fillOpacity: 1,
         }).bindTooltip(p.name).addTo(g);
       });
+      updateSelfMarkerOnMap(st.gps.coords, "#00D4FF", false, "موقعك");
       return;
     }
 
@@ -260,7 +460,6 @@ window.Kameen = window.Kameen || {};
       radius: vis.zone.nextRadiusMeters, color: "#FFB020", weight: 2, dashArray: "7,7", fillOpacity: 0,
     }).addTo(g);
 
-    // STRICT GUARD: Only render missions, airdrops, bodies, decoys, and other players AFTER spread!
     if (!isSpread) {
       const activeMission = vis.missions.find((m) => m.status === "in_progress");
       vis.missions.forEach((m) => {
@@ -272,6 +471,19 @@ window.Kameen = window.Kameen || {};
           fillColor: m.status === "completed" ? "#10B981" : "#FFFFFF",
           fillOpacity: 1,
         }).bindTooltip(m.poi.name, { permanent: Boolean(isAct), direction: "top" }).addTo(g);
+      });
+
+      // Show subtle map pins for real nearby places so players recognize AI hints!
+      (vis.landmarks || []).forEach((lm) => {
+        const isMissionPoi = vis.missions.some((m) => m.poi.name === lm.name);
+        if (isMissionPoi) return;
+        window.L.circleMarker([lm.lat, lm.lng], {
+          radius: 4,
+          color: "rgba(0,212,255,0.65)",
+          weight: 1.5,
+          fillColor: "#0B101B",
+          fillOpacity: 0.85,
+        }).bindTooltip("📍 " + lm.name, { direction: "top" }).addTo(g);
       });
 
       if (activeMission) {
@@ -310,19 +522,9 @@ window.Kameen = window.Kameen || {};
       });
     }
 
-    if (vis.self.coords.accuracyMeters && vis.self.coords.accuracyMeters < 65) {
-      window.L.circle([vis.self.coords.lat, vis.self.coords.lng], {
-        radius: vis.self.coords.accuracyMeters, color: "#00D4FF", weight: 1, fillColor: "#00D4FF", fillOpacity: 0.12,
-      }).addTo(g);
-    }
-
-    window.L.circleMarker([vis.self.coords.lat, vis.self.coords.lng], {
-      radius: 9.5,
-      color: "#FFFFFF",
-      weight: 3,
-      fillColor: !vis.self.alive ? "#64748B" : (vis.self.role === "IMPOSTER" ? "#FF2E54" : "#00D4FF"),
-      fillOpacity: 1,
-    }).bindTooltip(vis.self.alive ? "أنت هنا 📍" : "أنت (شبح 👻)").addTo(g);
+    const isImp = vis.self.role === "IMPOSTER";
+    const selfColor = !vis.self.alive ? "#64748B" : (isImp ? "#FF2E54" : "#00D4FF");
+    updateSelfMarkerOnMap(vis.self.coords, selfColor, isImp, vis.self.alive ? "أنت هنا 📍" : "أنت (شبح 👻)");
   }
 
   K.Map = {
@@ -332,5 +534,6 @@ window.Kameen = window.Kameen || {};
     recenter,
     fetchOverpassPOIs,
     updateLayers,
+    updateHeadingVisualOnly,
   };
 })(window.Kameen);
