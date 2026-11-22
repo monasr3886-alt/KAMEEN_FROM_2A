@@ -102,55 +102,206 @@ window.Kameen = window.Kameen || {};
 
   const INVESTIGATOR_MISSIONS = [
     {
-      type: "EVIDENCE_SCAN",
-      title: "رفع بصمات المكان 🔍",
-      description: (p) => `انزل على ${p} وصوّر صورة أو فيديو سريع تجمع بيه دليل لقضية الشلة.`,
-      baseTimeSec: 75, rewardPoints: 30,
+      type: "CAT_CHASE",
+      title: "مطاردة قطة الشارع",
+      description: (p) => `دوّر على قطة في الشارع ناحية ${p} واجري وراها بالراحة وصوّرها فيديو قصير من غير ما تأذيها!`,
+      mediaType: "video",
+      anywhereInZone: true,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor street video/photo clearly showing a real cat (stray or pet cat) on the street, sidewalk, car, or wall.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد إن فيه قطة حقيقية ظاهرة بوضوح في الفيديو.",
+      baseTimeSec: 150, rewardPoints: 45,
     },
     {
-      type: "AREA_SWEEP",
-      title: "تأمين النقطة السخنة 📍",
-      description: (p) => `عدّي على ${p} وخد لقطة تثبت إن المكان أمان وزوّد شريط التحقيق.`,
-      baseTimeSec: 75, rewardPoints: 25,
+      type: "HI_DOGS",
+      title: "قول لكلب هاي كلبات",
+      description: (p) => `قرّب بمسافة أمان من كلب شارع جوه الزون وصوّر فيديو بالصوت وإنت بتقوله بصوت واضح: «هاي كلبات»!`,
+      mediaType: "video",
+      anywhereInZone: true,
+      requiresSpeech: ["هاي", "كلب", "كلبات", "كلاب", "ازيك", "سلام", "hi", "dog"],
+      aiVisionRule: "A real outdoor street video/photo clearly showing a real dog (stray or pet dog) outdoors on a street, sidewalk, or park.",
+      aiHintAr: "فيديو بالصوت: الذكاء الاصطناعي هيشوف الكلب في الكاميرا وهيسمعك بتقول «هاي كلبات»!",
+      baseTimeSec: 150, rewardPoints: 50,
     },
     {
-      type: "CIPHER_CHECK",
-      title: "فك شفرة الميدان 🔐",
-      description: (p) => `وصل لحد ${p} من سكات وصوّر إثبات الوصول عشان تقفل جزء من القضية.`,
-      baseTimeSec: 65, rewardPoints: 35,
+      type: "PEACE_POLE",
+      title: "علامة النصر جنب عمود نور",
+      description: (p) => `وصل عند ${p}، ارفع صباعين بعلامة النصر قدام عمود نور أو شجرة في الشارع وصوّر اللقطة.`,
+      mediaType: "any",
+      anywhereInZone: false,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video showing a human hand making a V peace sign (two fingers raised) with a street lamp pole, light post, or tree visible in the background.",
+      aiHintAr: "الذكاء الاصطناعي هيفحص وجود علامة النصر (صباعين) وعمود نور أو شجرة في الخلفية.",
+      baseTimeSec: 110, rewardPoints: 35,
     },
     {
-      type: "TIMED_INTEL",
-      title: "سباق الأدلة ⏱️",
-      description: (p) => `الحق ${p} قبل ما العداد يخلص وارفع إثبات الكاميرا فوراً!`,
-      baseTimeSec: 60, rewardPoints: 40,
+      type: "RED_CAR_HUNT",
+      title: "صيدة العربية الحمرا",
+      description: (p) => `دوّر على أي عربية أو موتوسيكل لونه أحمر أو نبيتي جوه الزون وصوّره مع إيدك عامل علامة لايك.`,
+      mediaType: "any",
+      anywhereInZone: true,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video showing a red, crimson, or burgundy car, vehicle, or motorcycle on a street or parking area.",
+      aiHintAr: "الذكاء الاصطناعي هيدوّر على عربية أو موتوسيكل لونه أحمر أو نبيتي حقيقي.",
+      baseTimeSec: 130, rewardPoints: 40,
+    },
+    {
+      type: "THREE_FINGERS_SHOP",
+      title: "شفرة الـ 3 صوابع قدام محل",
+      description: (p) => `قف قدام أي محل أو كشك أو كافيه عند ${p} وارفع 3 صوابع قدام الكاميرا مع يافطة المحل وراك.`,
+      mediaType: "any",
+      anywhereInZone: false,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video showing a human hand holding up three fingers in front of a shop, kiosk, cafe storefront, or commercial signboard.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد من 3 صوابع مرفوعة وقدامك محل أو يافطة محل.",
+      baseTimeSec: 110, rewardPoints: 35,
+    },
+    {
+      type: "TOUCH_TREE",
+      title: "بصمة الشجرة",
+      description: (p) => `روح لأقرب شجرة أو زرعة عند ${p}، المس الجذع أو ورقة خضرا بإيدك وصوّرها بوضوح.`,
+      mediaType: "any",
+      anywhereInZone: false,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video showing a human hand physically touching a tree trunk, branch, bush, or green plant leaves outdoors.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد إن إيدك لامسة شجرة أو زرعة حقيقية في الشارع.",
+      baseTimeSec: 100, rewardPoints: 30,
+    },
+    {
+      type: "SHOE_CURB",
+      title: "وقفة طرف الرصيف",
+      description: (p) => `وصل عند ${p}، اقف بطرف الكوتشي بتاعك على حافة الرصيف وصوّر رجلك والشارع تحتك.`,
+      mediaType: "any",
+      anywhereInZone: false,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video pointing down showing a person's shoe or sneaker standing on a street curb, sidewalk edge, or outdoor pavement.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد إن الكوتشي بتاعك ظاهر وهو واقف على الرصيف.",
+      baseTimeSec: 95, rewardPoints: 30,
+    },
+    {
+      type: "WHEELS_SPOTTER",
+      title: "رصد موتوسيكل أو عجلة",
+      description: (p) => `القط صورة أو فيديو واضح لموتوسيكل أو توكتوك أو عجلة في الشارع جوه الزون كدليل ميداني.`,
+      mediaType: "any",
+      anywhereInZone: true,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor street photo/video clearly showing a motorcycle, scooter, bicycle, or tuk-tuk/auto-rickshaw.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد إن فيه موتوسيكل أو عجلة أو توكتوك حقيقي في اللقطة.",
+      baseTimeSec: 120, rewardPoints: 35,
+    },
+    {
+      type: "SALUTE_SKY",
+      title: "نداء العميل في الشارع",
+      description: (p) => `قف عند ${p} وصوّر فيديو 3 ثواني بالصوت وإنت رافع إيدك لفوق في الشارع وبتقول: «العميل جاهز يا كمين»!`,
+      mediaType: "video",
+      anywhereInZone: false,
+      requiresSpeech: ["عميل", "جاهز", "كمين", "تمام", "kameen"],
+      aiVisionRule: "A real outdoor street video/photo showing a human hand raised upward (salute, wave, or pointing up) outdoors with sky or buildings visible.",
+      aiHintAr: "فيديو بالصوت: الذكاء الاصطناعي هيشوف إيدك مرفوعة في الشارع وهيسمعك بتقول «العميل جاهز يا كمين»!",
+      baseTimeSec: 120, rewardPoints: 45,
+    },
+    {
+      type: "STREET_SIGN",
+      title: "شفرة اليافطة",
+      description: (p) => `عند ${p}، صوّر أي يافطة شارع، لوحة إرشادية، أو رقم عمارة مكتوب بوضوح في الشارع.`,
+      mediaType: "any",
+      anywhereInZone: false,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video clearly showing a street name sign, traffic/road sign, building number plate, or outdoor signboard.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد من وجود يافطة شارع أو لوحة رقم عمارة واضحة.",
+      baseTimeSec: 105, rewardPoints: 35,
     },
   ];
 
   const IMPOSTER_COVER_MISSIONS = [
     {
-      type: "COVER_ALIBI",
-      title: "تمثيلية البريء 🎭",
-      description: (p) => `اتحرك لحد ${p} وصوّر لقطة سريعة عشان تبعد الشكوك وتلم نقط لألاعيبك!`,
-      baseTimeSec: 75, rewardPoints: 35,
+      type: "COVER_CAT",
+      title: "تمويه: رصد قطة الشارع",
+      description: (p) => `اعمل نفسك شغال مهمة! دوّر على قطة في الشارع وصوّرها عشان تاخد نقط لتشويش الرادار.`,
+      mediaType: "any",
+      anywhereInZone: true,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor street photo/video clearly showing a real cat outdoors.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد من وجود قطة حقيقية في اللقطة عشان تاخد نقط التشويش.",
+      baseTimeSec: 140, rewardPoints: 45,
     },
     {
-      type: "COVER_STASH",
-      title: "تمويل التشويش ⚡",
-      description: (p) => `عدّي عند ${p} ووثّق مرورك عشان تاخد نقط تشغّل بيها تكتيم المحلل!`,
-      baseTimeSec: 75, rewardPoints: 35,
+      type: "COVER_PEACE",
+      title: "تمويه: علامة النصر في الشارع",
+      description: (p) => `عدّي عند ${p} وارفع صباعين بعلامة النصر قدام عمود نور أو شجرة وصوّرها عشان تبعد الشكوك وتلم نقط!`,
+      mediaType: "any",
+      anywhereInZone: false,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video showing a human hand making a two-finger peace sign outdoors near a pole, tree, or street.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد من علامة النصر في الشارع.",
+      baseTimeSec: 110, rewardPoints: 35,
     },
     {
-      type: "COVER_DECOY",
-      title: "زرع أثر وهمي 😈",
-      description: (p) => `لف ناحية ${p} وخد لقطة سريعة تظبّط بيها خطة التمويه وتكسب نقط!`,
-      baseTimeSec: 70, rewardPoints: 30,
+      type: "COVER_TREE",
+      title: "تمويه: لمس شجرة",
+      description: (p) => `روح عند ${p} والمس أي شجرة أو زرعة بإيدك وصوّرها عشان تموّل ألاعيبك بنقط جديدة.`,
+      mediaType: "any",
+      anywhereInZone: false,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video showing a human hand touching a tree trunk, bush, or green plant leaves outdoors.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد إن إيدك لامسة شجرة أو زرع حقيقي.",
+      baseTimeSec: 105, rewardPoints: 35,
+    },
+    {
+      type: "COVER_WHEELS",
+      title: "تمويه: رصد موتوسيكل أو عربية",
+      description: (p) => `صوّر أي موتوسيكل أو عربية حمرا أو عجلة في الشارع جوه الزون وخد نقط فورية للتشويش!`,
+      mediaType: "any",
+      anywhereInZone: true,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video clearly showing a motorcycle, bicycle, tuk-tuk, or red car on a street.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد من وجود موتوسيكل أو عجلة أو عربية حمرا.",
+      baseTimeSec: 120, rewardPoints: 40,
+    },
+    {
+      type: "COVER_CURB",
+      title: "تمويه: وقفة الرصيف",
+      description: (p) => `قف على طرف الرصيف عند ${p} وصوّر الكوتشي بتاعك في الشارع عشان تبان بريء وتلم نقط!`,
+      mediaType: "any",
+      anywhereInZone: false,
+      requiresSpeech: null,
+      aiVisionRule: "A real outdoor photo/video showing a person's shoe/sneaker standing on a street curb or outdoor pavement.",
+      aiHintAr: "الذكاء الاصطناعي هيتأكد من الكوتشي على الرصيف في الشارع.",
+      baseTimeSec: 100, rewardPoints: 35,
     },
   ];
 
-  function calculateDynamicMissionSeconds(playerCoords, poi, baseTimeSec = 70) {
+  function calculateDynamicMissionSeconds(playerCoords, poi, baseTimeSec = 110) {
     const dist = distanceMeters(playerCoords, { lat: poi.lat, lng: poi.lng });
-    return baseTimeSec + Math.ceil(dist / 0.95);
+    return baseTimeSec + Math.ceil(dist / 0.85);
+  }
+
+  function buildMissionObj(playerId, role, idx, poi, tpl, playerCoords) {
+    const est = calculateDynamicMissionSeconds(playerCoords, poi, tpl.baseTimeSec);
+    return {
+      id: `mission-${playerId}-${idx + 1}-${Math.floor(Math.random() * 900 + 100)}`,
+      playerId,
+      isCover: role === "IMPOSTER",
+      type: tpl.type,
+      title: tpl.title,
+      description: tpl.description(poi.name),
+      mediaType: tpl.mediaType || "any",
+      anywhereInZone: Boolean(tpl.anywhereInZone),
+      requiresSpeech: tpl.requiresSpeech ? [...tpl.requiresSpeech] : null,
+      aiVisionRule: tpl.aiVisionRule,
+      aiHintAr: tpl.aiHintAr,
+      poi,
+      rewardPoints: tpl.rewardPoints,
+      status: "pending",
+      startedAtMs: null,
+      deadlineMs: null,
+      estimatedDurationSec: est,
+      completedAtMs: null,
+      gpsVerified: false,
+      videoVerified: false,
+      aiNote: null,
+      botWaitUntilMs: 0,
+    };
   }
 
   function generatePlayerMissions(playerId, role, playerCoords, pois, center, radiusMeters, rng) {
@@ -163,28 +314,19 @@ window.Kameen = window.Kameen || {};
       selectedPOIs.push(availPOIs.splice(idx, 1)[0] ?? poolPOIs[i % poolPOIs.length]);
     }
     const poolTpls = [...tplSource];
-    return selectedPOIs.map((poi, idx) => {
+    // Guarantee at least 1 iconic fun dare (cat or dog) for human investigators so they experience it right away!
+    const pickedTpls = [];
+    if (role !== "IMPOSTER") {
+      const funIdx = rng() < 0.5 ? 0 : 1; // CAT_CHASE or HI_DOGS
+      pickedTpls.push(poolTpls.splice(funIdx, 1)[0]);
+    }
+    while (pickedTpls.length < 3) {
       const tIdx = Math.floor(rng() * poolTpls.length);
-      const tpl = poolTpls.splice(tIdx, 1)[0] ?? tplSource[idx % tplSource.length];
-      const est = calculateDynamicMissionSeconds(playerCoords, poi, tpl.baseTimeSec);
-      return {
-        id: `mission-${playerId}-${idx + 1}`,
-        playerId,
-        isCover: role === "IMPOSTER",
-        type: tpl.type,
-        title: tpl.title,
-        description: tpl.description(poi.name),
-        poi,
-        rewardPoints: tpl.rewardPoints,
-        status: "pending",
-        startedAtMs: null,
-        deadlineMs: null,
-        estimatedDurationSec: est,
-        completedAtMs: null,
-        gpsVerified: false,
-        videoVerified: false,
-      };
-    });
+      pickedTpls.push(poolTpls.splice(tIdx, 1)[0] ?? tplSource[pickedTpls.length % tplSource.length]);
+    }
+    return selectedPOIs.map((poi, idx) =>
+      buildMissionObj(playerId, role, idx, poi, pickedTpls[idx], playerCoords)
+    );
   }
 
   class KameenEngine {
@@ -252,7 +394,7 @@ window.Kameen = window.Kameen || {};
           stationarySeconds: 0, totalStationarySec: 0,
           killsCount: 0, airdropsClaimed: 0, missionsCompleted: 0,
           points: C.INITIAL_POINTS,
-          stealthUsesRemaining: 1, stealthArmedForNextReveal: false, stealthActiveInCurrentReveal: false,
+          stealthUsesRemaining: 1, freeRerollsRemaining: 1, stealthArmedForNextReveal: false, stealthActiveInCurrentReveal: false,
           protectedUntilMs: 0,
           killCooldownUntilMs: nowMs + spreadMs + C.ACTIVE_START_GRACE_MS,
           outsideZoneSinceMs: null, brokerRedBroadcastUntilMs: 0,
@@ -265,7 +407,7 @@ window.Kameen = window.Kameen || {};
             );
       });
 
-      const missionGoal = Math.max(3, Math.min(12, initialInvCount * 2));
+      const missionGoal = Math.max(3, initialInvCount * 3);
 
       return {
         matchId: config.matchId,
@@ -285,7 +427,7 @@ window.Kameen = window.Kameen || {};
         revealMode,
         lastPingSweepAtMs: 0,
         revealEndsAtMs: 0,
-        nextRevealAtActiveMs: revealMode === "ping" ? Math.min(revealIntervalMs, 15000) : revealIntervalMs,
+        nextRevealAtActiveMs: revealIntervalMs,
         nextAiReportAtActiveMs: C.AI_REPORT_INTERVAL_MS,
         nextAirdropAtActiveMs: C.AIRDROP_INTERVAL_MS,
         aiJammedUntilMs: 0,
@@ -430,6 +572,55 @@ window.Kameen = window.Kameen || {};
       return { ok: true, role: nextRole };
     }
 
+    getInvestigationProgress() {
+      const livingInvs = Object.values(this.state.players).filter((p) => p.alive && p.role === "INVESTIGATOR");
+      let done = 0;
+      let goal = 0;
+      let finishedPlayers = 0;
+      for (const inv of livingInvs) {
+        const list = this.state.missions[inv.id] || [];
+        const pDone = list.filter((m) => m.status === "completed").length;
+        const pGoal = list.length || 3;
+        done += pDone;
+        goal += pGoal;
+        if (pGoal > 0 && pDone >= pGoal) finishedPlayers += 1;
+      }
+      return {
+        done,
+        goal: Math.max(1, goal),
+        finishedPlayers,
+        totalPlayers: livingInvs.length,
+        allCompleted: livingInvs.length > 0 && goal > 0 && done >= goal,
+      };
+    }
+
+    rerollMission(playerId, missionId, nowMs = this.state.nowMs) {
+      const list = this.state.missions[playerId];
+      const p = this.state.players[playerId];
+      if (!list || !p || !p.alive) return { ok: false, error: "مش متاح" };
+      const idx = list.findIndex((x) => x.id === missionId);
+      if (idx === -1) return { ok: false, error: "المهمة مش موجودة" };
+      const cur = list[idx];
+      if (cur.status === "completed") return { ok: false, error: "المهمة دي خلصت خلاص!" };
+
+      const cost = (p.freeRerollsRemaining || 0) > 0 ? 0 : 15;
+      if (cost > 0 && p.points < cost) return { ok: false, error: `محتاج ${cost} نقطة لتبديل المهمة` };
+      if (cost === 0) p.freeRerollsRemaining -= 1;
+      else p.points -= cost;
+
+      const tplSource = p.role === "IMPOSTER" ? IMPOSTER_COVER_MISSIONS : INVESTIGATOR_MISSIONS;
+      const usedTypes = new Set(list.map((m) => m.type));
+      const candidates = tplSource.filter((t) => !usedTypes.has(t.type));
+      const pool = candidates.length ? candidates : tplSource.filter((t) => t.type !== cur.type);
+      const nextTpl = pool[Math.floor(this.rng() * pool.length)] || tplSource[0];
+      const nextMission = buildMissionObj(playerId, p.role, idx, cur.poi, nextTpl, p.coords);
+      list[idx] = nextMission;
+      return {
+        ok: true,
+        toast: `تم تبديل المهمة إلى: «${nextMission.title}»${cost > 0 ? ` (-${cost}ن)` : " (تبديل مجاني)"}`,
+      };
+    }
+
     getVisibleStateForPlayer(viewerId) {
       const self = this.state.players[viewerId] || Object.values(this.state.players)[0];
       const nowMs = this.state.nowMs;
@@ -539,8 +730,10 @@ window.Kameen = window.Kameen || {};
         aiJammed: this.state.aiJammedUntilMs > nowMs,
         aiJammedRemainingSec: this.state.aiJammedUntilMs > nowMs ? Math.ceil((this.state.aiJammedUntilMs - nowMs) / 1000) : 0,
         outsideZoneRemainingMs, decoyPing, activeAirdrop, nearestTarget, dangerSense,
-        investigationDone: this.state.investigationDone || 0,
-        investigationGoal: this.state.investigationGoal || 4,
+        investigationDone: this.getInvestigationProgress().done,
+        investigationGoal: this.getInvestigationProgress().goal,
+        investigatorsFinishedCount: this.getInvestigationProgress().finishedPlayers,
+        investigatorsTotalCount: this.getInvestigationProgress().totalPlayers,
         landmarks: this.getScanLandmarks(),
         zone: JSON.parse(JSON.stringify(this.state.zone)),
         self: JSON.parse(JSON.stringify(self)),
@@ -668,11 +861,12 @@ window.Kameen = window.Kameen || {};
         }
 
         if (this.state.activeElapsedMs >= this.state.matchDurationMs) {
-          const invAlive = this.getLivingPlayers().filter((p) => p.role === "INVESTIGATOR");
-          if (invAlive.length > 0) {
-            this.endMatch("INVESTIGATORS", "الوقت خلص والمفتشين لسه صامدين! عاش يا أبطال! 🏆", nextNowMs);
+          const prog = this.getInvestigationProgress();
+          const impsAlive = this.getLivingPlayers().filter((p) => p.role === "IMPOSTER");
+          if (impsAlive.length === 0 || prog.allCompleted) {
+            this.endMatch("INVESTIGATORS", "المحققين كسبوا الجيم قبل نهاية الوقت!", nextNowMs);
           } else {
-            this.endMatch("IMPOSTERS", "الوقت خلص والغدّارين سيطروا على الحي! 😈🔪", nextNowMs);
+            this.endMatch("IMPOSTERS", "الوقت خلص قبل ما كل المحققين يخلصوا مهماتهم أو يكشفوا الغدّار!", nextNowMs);
           }
         }
       }
@@ -1175,35 +1369,55 @@ window.Kameen = window.Kameen || {};
       return { ok: true, toast: `🎯 بدأنا "${m.title}"! الخط الأصفر ع الخريطة بيوديك للمكان.` };
     }
 
-    completeMission(playerId, missionId, videoVerified, nowMs = this.state.nowMs) {
+    completeMission(playerId, missionId, videoVerified, nowMs = this.state.nowMs, aiNote = null) {
       const list = this.state.missions[playerId];
       const p = this.state.players[playerId];
       if (!list || !p || !p.alive) return { ok: false, error: "مش متاح" };
       const m = list.find((x) => x.id === missionId);
       if (!m) return { ok: false, error: "المهمة مش موجودة" };
       if (m.status === "completed") return { ok: false, error: "خلصتها قبل كده" };
-      const dist = distanceMeters(p.coords, { lat: m.poi.lat, lng: m.poi.lng });
-      if (dist > C.MISSION_RANGE_M + 5) {
-        return { ok: false, error: `لسه بعيد عن المكان (${Math.round(dist)}م — قرّب لحد ${C.MISSION_RANGE_M}م)` };
+
+      if (m.anywhereInZone) {
+        const inside = isInsideZone(p.coords, this.state.zone.center, this.state.zone.currentRadiusMeters + 15);
+        if (!inside) return { ok: false, error: "لازم تكون جوه دايرة الزون عشان توثّق المهمة!" };
+      } else {
+        const dist = distanceMeters(p.coords, { lat: m.poi.lat, lng: m.poi.lng });
+        const maxRange = C.MISSION_RANGE_M + 10;
+        if (dist > maxRange) {
+          return { ok: false, error: `لسه بعيد عن المكان (${Math.round(dist)}م — قرّب لحد ${maxRange}م)` };
+        }
       }
-      if (!videoVerified) return { ok: false, error: "لازم تصوّر إثبات بالكاميرا الأول!" };
+      if (!videoVerified) return { ok: false, error: "لازم الذكاء الاصطناعي يعتمد الصورة أو الفيديو الأول!" };
       m.status = "completed";
       m.completedAtMs = nowMs;
       m.gpsVerified = true;
       m.videoVerified = true;
+      if (aiNote) m.aiNote = aiNote;
       p.points += m.rewardPoints;
       p.missionsCompleted += 1;
 
       if (p.role === "INVESTIGATOR") {
-        this.state.investigationDone = (this.state.investigationDone || 0) + 1;
-        this.pushEvent("MISSION_COMPLETED", `🔍 شريط التحقيق زاد (${this.state.investigationDone}/${this.state.investigationGoal})!`, nowMs, playerId);
-        if (this.state.investigationDone >= this.state.investigationGoal) {
-          this.endMatch("INVESTIGATORS", "المفتشين جمعوا كل الأدلة وقفلوا القضية 100%! فوز ساحق! 🏆🔍", nowMs);
+        const prog = this.getInvestigationProgress();
+        this.state.investigationDone = prog.done;
+        this.state.investigationGoal = prog.goal;
+        this.pushEvent("MISSION_COMPLETED", `مهمة معتمدة بالذكاء الاصطناعي! تقدم المحققين (${prog.done}/${prog.goal})`, nowMs, playerId);
+        if (prog.allCompleted) {
+          this.endMatch("INVESTIGATORS", "كل المحققين خلّصوا مهماتهم 100% بالذكاء الاصطناعي وقفلوا القضية!", nowMs);
         }
-        return { ok: true, data: { rewardPoints: m.rewardPoints }, toast: `🔍 عاش يا محقق! كسبت +${m.rewardPoints}ن وزوّدت شريط التحقيق!` };
+        return {
+          ok: true,
+          data: { rewardPoints: m.rewardPoints },
+          toast: aiNote
+            ? `AI اعتمدها (+${m.rewardPoints}ن): ${aiNote}`
+            : `تم اعتماد المهمة (+${m.rewardPoints}ن) • تقدم الكل (${prog.done}/${prog.goal})`,
+        };
       }
 
-      return { ok: true, data: { rewardPoints: m.rewardPoints }, toast: `🎭 تمويه نضيف! كسبت +${m.rewardPoints}ن لألاعيبك!` };
+      return {
+        ok: true,
+        data: { rewardPoints: m.rewardPoints },
+        toast: aiNote ? `AI اعتمد التمويه (+${m.rewardPoints}ن): ${aiNote}` : `تم اعتماد التمويه (+${m.rewardPoints}ن)`,
+      };
     }
 
     addAIReport(summaryText, source, nowMs = this.state.nowMs) {
@@ -1274,12 +1488,23 @@ window.Kameen = window.Kameen || {};
       const imps = living.filter((p) => p.role === "IMPOSTER");
       const invs = living.filter((p) => p.role === "INVESTIGATOR");
       if (imps.length === 0) {
-        this.endMatch("INVESTIGATORS", "المعلمين خلّصوا على الغدّارين كلهم! فوز ساحق للمفتشين! 🎉", nowMs);
-      } else if (invs.length === 0) {
-        this.endMatch("IMPOSTERS", "الغدّارين صفّوا كل المفتشين وكسبوا الميدان! 😈🔪", nowMs);
-      } else if (invs.length === 1 && !this.state.showdownActive) {
+        this.endMatch("INVESTIGATORS", "المحققين كشفوا وأقصوا الغدّارين كلهم!", nowMs);
+        return;
+      }
+      if (invs.length === 0) {
+        this.endMatch("IMPOSTERS", "الغدّارين صفّوا كل المحققين وسيطروا على المنطقة!", nowMs);
+        return;
+      }
+      const prog = this.getInvestigationProgress();
+      this.state.investigationDone = prog.done;
+      this.state.investigationGoal = prog.goal;
+      if (prog.allCompleted) {
+        this.endMatch("INVESTIGATORS", "كل المحققين الأحياء خلّصوا مهماتهم 100% وقفلوا القضية!", nowMs);
+        return;
+      }
+      if (invs.length === 1 && !this.state.showdownActive) {
         this.state.showdownActive = true;
-        this.pushEvent("SHOWDOWN", "🔥 آخر مفتش فاضل في الميدان! يا يصمد لآخر الوقت يا الغدّار يخلّص الجيم!", nowMs);
+        this.pushEvent("SHOWDOWN", "آخر محقق في الميدان! لازم يخلص مهماته أو يكشف الغدّار!", nowMs);
       }
     }
 
@@ -1363,7 +1588,7 @@ window.Kameen = window.Kameen || {};
         }
         if (nearest) {
           if (minDist <= 8) { engine.attemptKill(bot.id, nearest.id, nowMs); continue; }
-          if (minDist <= 48) { engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, nearest.coords, stepMeters * 1.05), nowMs); continue; }
+          if (minDist <= 26) { engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, nearest.coords, stepMeters * 1.05), nowMs); continue; }
         }
       }
 
@@ -1381,8 +1606,18 @@ window.Kameen = window.Kameen || {};
       if (act) {
         if (act.status === "pending") engine.startMission(bot.id, act.id, nowMs);
         const poiC = { lat: act.poi.lat, lng: act.poi.lng };
-        if (distanceMeters(bot.coords, poiC) <= 18) engine.completeMission(bot.id, act.id, true, nowMs);
-        else engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, poiC, stepMeters), nowMs);
+        if (distanceMeters(bot.coords, poiC) <= 18) {
+          const liveM = (engine.state.missions[bot.id] || []).find((x) => x.id === act.id);
+          if (liveM) {
+            if (!liveM.botWaitUntilMs) {
+              liveM.botWaitUntilMs = nowMs + 14000;
+            } else if (nowMs >= liveM.botWaitUntilMs) {
+              engine.completeMission(bot.id, act.id, true, nowMs);
+            }
+          }
+        } else {
+          engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, poiC, stepMeters), nowMs);
+        }
       }
     }
   }

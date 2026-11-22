@@ -77,6 +77,7 @@ window.Kameen = window.Kameen || {};
     aiBusy: false,
     videoAnalyzing: false,
     videoVerdict: null,
+    videoVerdictTone: "pending",
     modal: null,
     activeCameraMissionId: null,
     toast: null,
@@ -379,8 +380,11 @@ window.Kameen = window.Kameen || {};
       case "MISSION_START":
         res = st.engine.startMission(playerId, data.missionId, t);
         break;
+      case "REROLL_MISSION":
+        res = st.engine.rerollMission(playerId, data.missionId, t);
+        break;
       case "MISSION_COMPLETE":
-        res = st.engine.completeMission(playerId, data.missionId, Boolean(data.videoVerified), t);
+        res = st.engine.completeMission(playerId, data.missionId, Boolean(data.videoVerified), t, data.aiNote || null);
         if (res.ok) K.SFX.play("win");
         break;
     }
@@ -523,7 +527,7 @@ window.Kameen = window.Kameen || {};
         const stepMs = st.isSimMode ? 1000 * st.simSpeed : 1000;
         st.simTimeMs = st.isSimMode ? st.simTimeMs + stepMs : Date.now();
         st.engine.tick(st.simTimeMs);
-        K.stepBots(st.engine, st.isSimMode ? 3.5 * st.simSpeed : 3.5);
+        K.stepBots(st.engine, st.isSimMode ? 1.6 * st.simSpeed : 1.6);
         void K.AI.triggerProfilerReport(false);
         K.Network.broadcastMatchSnapshot(false);
 
@@ -852,10 +856,15 @@ window.Kameen = window.Kameen || {};
   window.onScanPlace = (placeId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("LOC_Q", { placeId }); };
   window.onSpokenName = (accusedId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("SPOKEN", { accusedId }); };
   window.onStartMission = (missionId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("MISSION_START", { missionId }); };
+  window.onRerollMission = (missionId) => {
+    dispatchAction("REROLL_MISSION", { missionId });
+    if (K.state.modal === "missions_sheet") K.UI.updateMissionsDynamic();
+  };
 
   window.openCameraForMission = (missionId) => {
     K.state.activeCameraMissionId = missionId;
     K.state.videoVerdict = null;
+    K.state.videoVerdictTone = "pending";
     K.state.videoAnalyzing = false;
     K.state.modal = "camera";
     K.UI.renderModal();

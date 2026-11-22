@@ -239,12 +239,14 @@ window.Kameen = window.Kameen || {};
       `;
     }
     if (activeMission) {
-      const canProof = activeDist <= C.MISSION_RANGE_M + 5;
+      const insideZ = K.Geo.isInsideZone(vis.self.coords, vis.zone.center, vis.zone.currentRadiusMeters + 15);
+      const canProof = activeMission.anywhereInZone ? insideZ : (activeDist <= C.MISSION_RANGE_M + 10);
+      const locTxt = activeMission.anywhereInZone ? `${esc(activeMission.title)} • جوه الزون` : `${esc(activeMission.title)} • ${activeDist}م`;
       return `
         <div class="hud-ticker">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(activeMission.poi.name)} • ${activeDist}م</span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${locTxt}</span>
           ${canProof
-            ? `<button class="btn btn-success btn-xs" onclick="openCameraForMission('${activeMission.id}')">توثيق</button>`
+            ? `<button class="btn btn-success btn-xs" onclick="openCameraForMission('${activeMission.id}')">توثيق AI</button>`
             : `<span style="color:var(--muted);font-size:11px;">${K.Geo.getArabicDirection(vis.self.coords, { lat: activeMission.poi.lat, lng: activeMission.poi.lng })}</span>`}
         </div>
       `;
@@ -387,7 +389,7 @@ window.Kameen = window.Kameen || {};
         </div>
         ${!isSpec && !isImp && !isSpread ? `
           <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
-            <span style="font-size:10px;font-weight:800;color:var(--cyan);white-space:nowrap;" class="tnum">القضية ${invPct}%</span>
+            <span style="font-size:10px;font-weight:800;color:var(--cyan);white-space:nowrap;" class="tnum">كل المحققين ${vis.investigationDone}/${vis.investigationGoal} (${invPct}%)</span>
             <div class="inv-progress-track" style="margin-top:0;"><div class="inv-progress-fill" style="width:${invPct}%;"></div></div>
           </div>
         ` : ""}
@@ -820,7 +822,7 @@ window.Kameen = window.Kameen || {};
       <div class="card" style="border-right:3px solid var(--cyan);">
         <div class="eyebrow" style="color:var(--cyan);margin-bottom:4px;">دور المحقق</div>
         <div style="font-size:12.5px;font-weight:700;line-height:1.8;color:var(--muted);">
-          • نفّذ المهام الميدانية لملء شريط القضية 100% والفوز.<br/>
+          • للفوز: لازم <b>كل المحققين الأحياء</b> يخلصوا كل مهامهم الواقعية 100% (بفحص الذكاء الاصطناعي) أو تكشفوا وتطردوا الغدّار قبل ما الوقت يخلص.<br/>
           • استخدم درع الحماية، مسح المعالم، والاتهام المباشر عند التأكد.<br/>
           • نبض القلب بيحذرك تلقائياً لما الغدّار يقرّب منك بدون كشف اسمه.
         </div>
@@ -838,29 +840,50 @@ window.Kameen = window.Kameen || {};
   function buildMissionsCardsHtml(vis) {
     const C = K.GAME_CONSTANTS;
     const isImp = vis.self.role === "IMPOSTER";
+    const insideZ = K.Geo.isInsideZone(vis.self.coords, vis.zone.center, vis.zone.currentRadiusMeters + 15);
+    const rerollLbl = (vis.self.freeRerollsRemaining || 0) > 0 ? "تبديل (مجاني)" : "تبديل (15ن)";
+
     return vis.missions.map((m) => {
       const dist = Math.round(K.Geo.distanceMeters(vis.self.coords, { lat: m.poi.lat, lng: m.poi.lng }));
       const dir = K.Geo.getArabicDirection(vis.self.coords, { lat: m.poi.lat, lng: m.poi.lng });
-      const inRange = dist <= C.MISSION_RANGE_M + 5;
+      const canProof = m.anywhereInZone ? insideZ : (dist <= C.MISSION_RANGE_M + 10);
+      const proofTypeBadge = m.requiresSpeech
+        ? `<span class="pill pill-red">فيديو بالصوت AI</span>`
+        : (m.mediaType === "video"
+            ? `<span class="pill pill-amber">فيديو AI</span>`
+            : `<span class="pill pill-cyan">صورة أو فيديو AI</span>`);
+      const locLine = m.anywhereInZone
+        ? (insideZ ? "في أي مكان جوه الزون (جاهز للتصوير)" : "ادخل جوه دايرة الزون الأول")
+        : `${esc(m.poi.name)} • ${dist}م (${dir})`;
+
       return `
         <div class="card" style="padding:12px;border-right:3px solid ${m.status === "completed" ? "var(--emerald)" : (m.status === "in_progress" ? "var(--amber)" : "var(--border-strong)")};">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap;">
             <div style="font-weight:900;font-size:13.5px;">${esc(m.title)}</div>
-            <span class="pill pill-amber tnum">+${m.rewardPoints}ن</span>
+            <div style="display:flex;align-items:center;gap:5px;">
+              ${proofTypeBadge}
+              <span class="pill pill-amber tnum">+${m.rewardPoints}ن</span>
+            </div>
           </div>
-          <p style="font-size:11.5px;color:var(--muted);font-weight:600;margin:4px 0 6px;">${esc(m.description)}</p>
+          <p style="font-size:12px;color:var(--text);font-weight:600;margin:6px 0;line-height:1.55;">${esc(m.description)}</p>
           <div style="font-size:11px;font-weight:800;color:${isImp ? "#FF6B7D" : "var(--cyan)"};margin-bottom:8px;">
-            ${esc(m.poi.name)} • ${dist}م (${dir})
+            ${locLine}
           </div>
           ${m.status === "completed"
-            ? `<div class="pill pill-green" style="width:100%;justify-content:center;padding:7px;">مكتملة</div>`
+            ? `<div class="pill pill-green" style="width:100%;justify-content:center;padding:7px;">تم الاعتماد بالذكاء الاصطناعي${m.aiNote ? " • " + esc(m.aiNote).slice(0, 38) : ""}</div>`
             : m.status === "pending"
-              ? `<button class="btn ${isImp ? "btn-crimson-outline" : "btn-cyan"} btn-sm" style="width:100%;" onclick="onStartMission('${m.id}')">تحديد المسار على الرادار</button>`
-              : `<div class="grid-2">
-                  <button class="btn btn-outline btn-sm" onclick="onCloseModal();Kameen.Map.recenter()">عرض المسار</button>
-                  <button class="btn btn-success btn-sm" ${inRange ? "" : "disabled"} onclick="openCameraForMission('${m.id}')">
-                    ${inRange ? "توثيق بالكاميرا" : `اقترب (${dist}م)`}
-                  </button>
+              ? `<div style="display:flex;gap:6px;">
+                  <button class="btn ${isImp ? "btn-crimson-outline" : "btn-cyan"} btn-sm" style="flex:1;" onclick="onStartMission('${m.id}')">${m.anywhereInZone ? "ابدأ التحدي الآن" : "ابدأ وافتح المسار"}</button>
+                  <button class="btn btn-outline btn-sm" onclick="onRerollMission('${m.id}')">${rerollLbl}</button>
+                </div>`
+              : `<div style="display:flex;flex-direction:column;gap:6px;">
+                  <div class="grid-2">
+                    <button class="btn btn-outline btn-sm" onclick="onCloseModal();Kameen.Map.recenter()">عرض الرادار</button>
+                    <button class="btn btn-success btn-sm" ${canProof ? "" : "disabled"} onclick="openCameraForMission('${m.id}')">
+                      ${canProof ? (m.requiresSpeech ? "صوّر فيديو بالصوت" : "صوّر للتقييم AI") : `اقترب (${dist}م)`}
+                    </button>
+                  </div>
+                  <button class="btn btn-muted btn-xs" style="width:100%;" onclick="onRerollMission('${m.id}')">ملقتش المطلوب؟ ${rerollLbl}</button>
                 </div>`
           }
         </div>
@@ -948,9 +971,30 @@ window.Kameen = window.Kameen || {};
   function updateCameraModalStatus() {
     const st = K.state;
     const vEl = document.getElementById("cam-verdict-box");
-    if (vEl) { vEl.textContent = st.videoVerdict || ""; vEl.classList.toggle("hidden", !st.videoVerdict); }
+    if (vEl) {
+      vEl.textContent = st.videoVerdict || "";
+      vEl.classList.toggle("hidden", !st.videoVerdict);
+      const tone = st.videoVerdictTone || "pending";
+      if (tone === "success") {
+        vEl.style.background = "var(--emerald-tint)";
+        vEl.style.borderColor = "var(--emerald-border)";
+        vEl.style.color = "#34D399";
+      } else if (tone === "error") {
+        vEl.style.background = "var(--crimson-tint)";
+        vEl.style.borderColor = "var(--crimson-border)";
+        vEl.style.color = "#FF6B7D";
+      } else {
+        vEl.style.background = "var(--amber-tint)";
+        vEl.style.borderColor = "var(--amber-border)";
+        vEl.style.color = "#FCD34D";
+      }
+    }
     const lbl = document.getElementById("cam-upload-lbl");
-    if (lbl) lbl.textContent = st.videoAnalyzing ? "جاري فحص الصورة بالذكاء الاصطناعي..." : "التقط صورة أو فيديو سريع";
+    if (lbl) {
+      lbl.textContent = st.videoAnalyzing
+        ? "الذكاء الاصطناعي بيفحص اللقطة..."
+        : (lbl.dataset.defaultLabel || "التقط صورة أو فيديو الآن");
+    }
   }
 
   function bottomSheetHtml(title, bodyHtml, accentColor = "var(--text)") {
@@ -1183,7 +1227,7 @@ window.Kameen = window.Kameen || {};
       const isImp = vis.self.role === "IMPOSTER";
       const sub = isImp
         ? `<div style="font-size:11.5px;color:var(--muted);">مهام تمويه اختيارية تمنحك نقاطاً لتشغيل ألاعيبك.</div>`
-        : `<div style="font-size:11.5px;color:var(--cyan);font-weight:800;">تقدم القضية: ${vis.investigationDone} / ${vis.investigationGoal}</div>`;
+        : `<div class="card" style="padding:10px;border-color:var(--cyan-border);font-size:11.5px;color:var(--cyan);font-weight:800;">تقدم كل المحققين: <span class="tnum">${vis.investigationDone}/${vis.investigationGoal}</span> مهمة (${vis.investigatorsFinishedCount || 0} من ${vis.investigatorsTotalCount || 1} محققين خلّصوا الكل)</div>`;
       mr.innerHTML = bottomSheetHtml(
         isImp ? "مهام التمويه" : "مهام التحقيق",
         `${sub}<div id="missions-sheet-list" style="display:flex;flex-direction:column;gap:8px;">${buildMissionsCardsHtml(vis)}</div>`,
@@ -1336,23 +1380,43 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // 12. Mission Camera Proof
+    // 12. Mission Camera Proof (Strict Groq Vision + Whisper AI Referee)
     if (st.modal === "camera" && st.engine) {
+      const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+      const m = (vis.missions || []).find((x) => x.id === st.activeCameraMissionId);
+      const hasKey = Boolean(((st.groqKey || K.CONFIG.DEFAULT_GROQ_KEY || "")).trim());
+      const needVideo = Boolean(m && (m.mediaType === "video" || (m.requiresSpeech && m.requiresSpeech.length)));
+      const acceptAttr = (m && m.requiresSpeech && m.requiresSpeech.length) ? "video/*" : "image/*,video/*";
+      const btnLabel = (m && m.requiresSpeech && m.requiresSpeech.length)
+        ? "صوّر فيديو قصير بالصوت (3-8 ثواني)"
+        : (needVideo ? "صوّر فيديو قصير (3-8 ثواني)" : "صوّر صورة أو فيديو للمهمة");
+
       const body = `
-        <p style="font-size:12px;color:var(--muted);font-weight:600;margin:0;text-align:center;">
-          التقط صورة سريعة للمكان للتحقق من إتمام المهمة.
-        </p>
+        ${m ? `
+          <div class="card" style="border-right:3px solid var(--amber);padding:12px;">
+            <div style="font-weight:900;font-size:14px;color:var(--text);">${esc(m.title)}</div>
+            <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:4px;line-height:1.55;">${esc(m.description)}</div>
+            <div style="font-size:11px;color:var(--cyan);font-weight:800;margin-top:7px;">فحص AI: ${esc(m.aiHintAr || "الذكاء الاصطناعي هيفحص اللقطة بدقة.")}</div>
+          </div>
+        ` : ""}
+        ${!hasKey ? `
+          <div class="intel-item" style="border-right-color:var(--crimson);">
+            مفتاح Groq AI غير مضاف! عشان الذكاء الاصطناعي يحلل المهمة، اضغط الزرار اللي تحت والصق مفتاحك.
+            <button class="btn btn-crimson-outline btn-xs" style="width:100%;margin-top:8px;" onclick="onOpenModal('game_settings')">إضافة مفتاح Groq AI الآن</button>
+          </div>
+        ` : ""}
         <div id="cam-verdict-box" class="${st.videoVerdict ? "" : "hidden"}"
-          style="background:var(--crimson-tint);border:1px solid var(--crimson-border);color:#FF6B7D;padding:10px;border-radius:10px;font-size:12px;font-weight:800;text-align:center;">
+          style="background:var(--amber-tint);border:1px solid var(--amber-border);color:#FCD34D;padding:11px;border-radius:10px;font-size:12px;font-weight:800;text-align:center;line-height:1.6;">
           ${esc(st.videoVerdict || "")}
         </div>
-        <label class="btn btn-primary" style="width:100%;cursor:pointer;padding:14px;">
-          <span id="cam-upload-lbl">${st.videoAnalyzing ? "جاري فحص الصورة بالذكاء الاصطناعي..." : "التقط صورة أو فيديو سريع"}</span>
-          <input type="file" accept="image/*,video/*" capture="environment" style="display:none;"
-            onchange="if(this.files&&this.files[0])void Kameen.AI.analyzeMissionMedia(Kameen.state.activeCameraMissionId, this.files[0])" />
+        <label class="btn btn-primary" style="width:100%;cursor:pointer;padding:14px;${!hasKey ? "opacity:0.45;" : ""}">
+          <span id="cam-upload-lbl" data-default-label="${esc(btnLabel)}">${st.videoAnalyzing ? "الذكاء الاصطناعي بيفحص اللقطة..." : btnLabel}</span>
+          <input type="file" accept="${acceptAttr}" capture="environment" style="display:none;"
+            onchange="if(this.files&&this.files[0])void Kameen.AI.analyzeMissionMedia(Kameen.state.activeCameraMissionId, this.files[0]);this.value='';" />
         </label>
       `;
-      mr.innerHTML = bottomSheetHtml("توثيق المهمة", body);
+      mr.innerHTML = bottomSheetHtml("توثيق المهمة بالذكاء الاصطناعي", body, "var(--amber)");
+      updateCameraModalStatus();
       return;
     }
 
