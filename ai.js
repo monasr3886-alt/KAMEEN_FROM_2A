@@ -3,14 +3,25 @@
 window.Kameen = window.Kameen || {};
 
 (function (K) {
+  let cachedLiveModels = null;
+  let cachedModelsAtMs = 0;
+
+  function sanitizeKey(raw) {
+    return String(raw || "").replace(/[^\x21-\x7E]/g, "").trim();
+  }
+
   function getGroqKey() {
-    return ((K.state && K.state.groqKey) || K.CONFIG.DEFAULT_GROQ_KEY || "").trim();
+    const userKey = sanitizeKey(K.state && K.state.groqKey);
+    if (userKey && userKey.startsWith("gsk_") && userKey.length >= 20) return userKey;
+    const defKey = sanitizeKey(K.CONFIG && K.CONFIG.DEFAULT_GROQ_KEY);
+    if (defKey && defKey.startsWith("gsk_") && defKey.length >= 20) return defKey;
+    return userKey || defKey || "";
   }
 
   function normalizeArabic(str) {
     return String(str || "")
       .toLowerCase()
-      .replace(/[\u064B-\u065F\u0670]/g, "") // strip tashkeel
+      .replace(/[\u064B-\u065F\u0670]/g, "")
       .replace(/[أإآ]/g, "ا")
       .replace(/ة/g, "ه")
       .replace(/ى/g, "ي")
@@ -30,14 +41,133 @@ window.Kameen = window.Kameen || {};
     return null;
   }
 
+  async function readErrorBody(res) {
+    try {
+      const txt = await res.text();
+      try {
+        const j = JSON.parse(txt);
+        return String(j?.error?.message || j?.message || txt).slice(0, 140);
+      } catch {
+        return txt.slice(0, 140);
+      }
+    } catch {
+      return "";
+    }
+  }
+
+  // Dynamically fetch live active models from Groq so deprecated model IDs NEVER break the game!
+  async function fetchLiveGroqModels(force = false) {
+    const key = getGroqKey();
+    if (!key) return { ok: false, status: 0, error: "مفيش مفتاح Groq", models: [] };
+    if (!force && cachedLiveModels && Date.now() - cachedModelsAtMs < 300000) {
+      return { ok: true, status: 200, error: "", models: cachedLiveModels };
+    }
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      const res = await fetch("https://api.groq.com/openai/v1/models", {
+        method: "GET",
+        signal: ctrl.signal,
+        headers: { "Authorization": "Bearer " + key },
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        const msg = await readErrorBody(res);
+        return { ok: false, status: res.status, error: msg, models: [] };
+      }
+      const j = await res.json();
+      const ids = (j.data || [])
+        .filter((m) => m && m.id && m.active !== false)
+        .map((m) => String(m.id));
+      cachedLiveModels = ids;
+      cachedModelsAtMs = Date.now();
+      return { ok: true, status: 200, error: "", models: ids };
+    } catch (err) {
+      const isTimeout = err && err.name === "AbortError";
+      return {
+        ok: false,
+        status: isTimeout ? "TIMEOUT" : "NETWORK",
+        error: isTimeout ? "انتهى وقت الاتصال" : String(err?.message || "Failed to fetch"),
+        models: [],
+      };
+    }
+  }
+
+  function pickVisionModelsFromLive(liveIds) {
+    const preferred = [
+      "meta-llama/llama-4-scout-17b-16e-instruct",
+      "meta-llama/llama-4-maverick-17b-128e-instruct",
+    ];
+    const discovered = (liveIds || []).filter((id) =>
+      /vision|llama-4|scout|maverick|qwen.*vl|pixtral|llava|multimodal/i.test(id) &&
+      !/whisper|tts|guard|embed|prompt-guard|safeguard/i.test(id)
+    );
+    const out = [];
+    for (const id of [...preferred, ...discovered]) {
+      if (!out.includes(id)) out.push(id);
+    }
+    return out;
+  }
+
+  function pickChatModelsFromLive(liveIds) {
+    const preferred = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+    const discovered = (liveIds || []).filter((id) =>
+      /llama|qwen|gemma|mixtral|gpt-oss/i.test(id) &&
+      !/whisper|tts|guard|embed|vision/i.test(id)
+    );
+    const out = [];
+    for (const id of [...preferred, ...discovered]) {
+      if (!out.includes(id)) out.push(id);
+    }
+    return out.slice(0, 4);
+  }
+
+  function formatFriendlyError(status, detail) {
+    const d = String(detail || "");
+    if (status === 401 || /invalid.*api.*key|expired|revoked/i.test(d)) {
+      return "مفتاح Groq مرفوض أو ملغي (401) — لو اترفع على GitHub Public جروك بيلغيه تلقائي، اعمل مفتاح جديد من console.groq.com والصقه هنا.";
+    }
+    if (status === 403) {
+      return `سيرفر Groq رفض الاتصال (403) — اتأكد إن المفتاح شغال وإن مفيش VPN أو حجب على الشبكة. ${d ? "(" + d.slice(0, 60) + ")" : ""}`;
+    }
+    if (status === 429) {
+      return "ضغط لحظي على سيرفر Groq (429) — استنى 5 ثواني وحاول تاني.";
+    }
+    if (status === "TIMEOUT") {
+      return "انتهى وقت الاتصال (Timeout) — النت بطيء شوية، صوّر صورة أو فيديو أقصر (3 ثواني) وحاول تاني.";
+    }
+    if (status === "NETWORK") {
+      return "المتصفح مش قادر يوصل لـ api.groq.com — اتأكد من النت أو جرّب تقفل AdBlocker/DNS الخاص.";
+    }
+    return `خطأ من سيرفر Groq (${status || "?"}): ${d || "حاول تاني بعد لحظات."}`;
+  }
+
+  // Live 1-tap diagnostics for Settings Drawer
+  async function testConnection() {
+    const key = getGroqKey();
+    if (!key) {
+      return { ok: false, message: "لا يوجد مفتاح Groq AI محفوظ." };
+    }
+    const res = await fetchLiveGroqModels(true);
+    if (!res.ok) {
+      return { ok: false, message: formatFriendlyError(res.status, res.error) };
+    }
+    const visionList = pickVisionModelsFromLive(res.models).filter((id) => res.models.includes(id));
+    const vTxt = visionList.length ? visionList[0] : "جاري الفحص";
+    return {
+      ok: true,
+      message: `متصل بنجاح بسيرفر Groq (${res.models.length} موديل نشط • Vision: ${vTxt})`,
+    };
+  }
+
   async function callGroqChat(systemPrompt, userPrompt, maxTokens = 130) {
     const key = getGroqKey();
     if (!key) return null;
-    const models = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+    const models = cachedLiveModels ? pickChatModelsFromLive(cachedLiveModels) : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
     for (const model of models) {
       try {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 9000);
+        const timer = setTimeout(() => ctrl.abort(), 12000);
         const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
           signal: ctrl.signal,
@@ -61,12 +191,57 @@ window.Kameen = window.Kameen || {};
           const txt = j.choices?.[0]?.message?.content?.trim();
           if (txt) return txt.replace(/^["«]|["»]$/g, "");
         }
+        if (res.status === 401) break;
       } catch {}
     }
     return null;
   }
 
-  // Strict Mission-Specific Vision Verification (1 frame for photo, up to 3 keyframes for video)
+  async function postVisionAttempt(key, model, framesSubset, promptText) {
+    const contentParts = [{ type: "text", text: promptText }];
+    for (const b64 of framesSubset) {
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: "data:image/jpeg;base64," + b64 },
+      });
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: {
+          "Authorization": "Bearer " + key,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: contentParts }],
+          temperature: 0.2,
+          max_tokens: 180,
+        }),
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        const errMsg = await readErrorBody(res);
+        return { ok: false, status: res.status, error: errMsg, raw: "" };
+      }
+      const j = await res.json();
+      return { ok: true, status: 200, error: "", raw: j.choices?.[0]?.message?.content || "" };
+    } catch (err) {
+      clearTimeout(timer);
+      const isTimeout = err && err.name === "AbortError";
+      return {
+        ok: false,
+        status: isTimeout ? "TIMEOUT" : "NETWORK",
+        error: isTimeout ? "timeout" : String(err?.message || "network_error"),
+        raw: "",
+      };
+    }
+  }
+
+  // Strict Mission-Specific Vision Verification with Dynamic Model Discovery + Single-Frame Fallback
   async function verifyMissionWithGroqVision(framesB64, mission) {
     const key = getGroqKey();
     if (!key) {
@@ -74,7 +249,7 @@ window.Kameen = window.Kameen || {};
         ok: false,
         noKey: true,
         seen: "",
-        reason: "لازم تضيف مفتاح Groq AI في الإعدادات (≡) عشان الذكاء الاصطناعي يفحص المهمة ويتأكد منها!",
+        reason: "لازم تضيف مفتاح Groq AI في الإعدادات (≡) عشان الذكاء الاصطناعي يفحص المهمة!",
       };
     }
 
@@ -83,68 +258,42 @@ window.Kameen = window.Kameen || {};
       : "A real outdoor street scene matching the mission description.";
     const mTitle = mission ? mission.title : "مهمة ميدانية";
 
-    const contentParts = [
-      {
-        type: "text",
-        text:
-          `You are a strict, fair referee for an Egyptian real-world outdoor GPS street game called "Kameen".\n` +
-          `Mission Title: "${mTitle}"\n` +
-          `Required Visual Proof: ${rule}\n\n` +
-          `Inspect the attached camera image(s) carefully. Rules:\n` +
-          `1. Reject if the required object/animal/gesture is NOT clearly visible, or if it's a photo of another phone/laptop screen, a blank wall, a dark/covered camera, or unrelated scene.\n` +
-          `2. Accept if the required subject is genuinely visible in at least one frame.\n` +
-          `3. Reply ONLY with valid JSON (no markdown, no extra text):\n` +
-          `{"passed": true or false, "seen": "وصف قصير بالعامية المصرية للي شفته في الكاميرا فعلياً", "reason": "تعليق روش قصير بالعامية المصرية يوضح ليه قبلت أو رفضت"}`,
-      },
-    ];
+    const promptText =
+      `You are a strict, fair referee for an Egyptian real-world outdoor GPS street game called "Kameen".\n` +
+      `Mission Title: "${mTitle}"\n` +
+      `Required Visual Proof: ${rule}\n\n` +
+      `Inspect the attached camera image(s) carefully. Rules:\n` +
+      `1. Reject if the required object/animal/gesture is NOT clearly visible, or if it's a photo of another phone/laptop screen, a blank wall, a dark/covered camera, or unrelated scene.\n` +
+      `2. Accept if the required subject is genuinely visible in at least one frame.\n` +
+      `3. Reply ONLY with valid JSON (no markdown, no extra text):\n` +
+      `{"passed": true or false, "seen": "وصف قصير بالعامية المصرية للي شفته في الكاميرا فعلياً", "reason": "تعليق روش قصير بالعامية المصرية يوضح ليه قبلت أو رفضت"}`;
 
-    for (const b64 of framesB64.slice(0, 3)) {
-      contentParts.push({
-        type: "image_url",
-        image_url: { url: "data:image/jpeg;base64," + b64 },
-      });
-    }
-
-    const visionModels = [
+    let visionModels = [
       "meta-llama/llama-4-scout-17b-16e-instruct",
       "meta-llama/llama-4-maverick-17b-128e-instruct",
     ];
+    if (cachedLiveModels) {
+      visionModels = pickVisionModelsFromLive(cachedLiveModels);
+    }
 
-    let lastHttpErr = null;
-    for (const model of visionModels) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 14000);
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          signal: ctrl.signal,
-          headers: {
-            "Authorization": "Bearer " + key,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model,
-            messages: [{ role: "user", content: contentParts }],
-            temperature: 0.2,
-            max_tokens: 180,
-          }),
-        });
-        clearTimeout(timer);
+    const middleFrame = [framesB64[Math.floor(framesB64.length / 2)] || framesB64[0]];
+    const multiFrames = framesB64.slice(0, 3);
 
-        if (!res.ok) {
-          lastHttpErr = res.status;
-          if (res.status === 401) {
-            return {
-              ok: false,
-              seen: "",
-              reason: "مفتاح Groq AI غلط أو منتهي! راجع المفتاح في الإعدادات (≡).",
-            };
-          }
-          continue;
-        }
+    let lastStatus = null;
+    let lastDetail = "";
+    let discoveredOnce = false;
 
-        const j = await res.json();
-        const raw = j.choices?.[0]?.message?.content || "";
+    for (let idx = 0; idx < visionModels.length; idx++) {
+      const model = visionModels[idx];
+      let attempt = await postVisionAttempt(key, model, multiFrames, promptText);
+
+      // If multi-frame payload rejected (400 / 413), immediately retry same model with 1 sharp frame!
+      if (!attempt.ok && multiFrames.length > 1 && (attempt.status === 400 || attempt.status === 413)) {
+        attempt = await postVisionAttempt(key, model, middleFrame, promptText);
+      }
+
+      if (attempt.ok) {
+        const raw = attempt.raw;
         const parsed = extractJsonObject(raw);
         if (parsed && typeof parsed.passed === "boolean") {
           return {
@@ -153,25 +302,44 @@ window.Kameen = window.Kameen || {};
             reason: String(parsed.reason || (parsed.passed ? "الذكاء الاصطناعي اعتمد اللقطة!" : "اللقطة مش مطابقة للمهمة!")).trim(),
           };
         }
-        // Fallback if model replied plain YES/NO
         const upper = raw.toUpperCase();
         if (upper.includes("TRUE") || upper.includes("YES")) {
           return { ok: true, seen: "تم الفحص البصري", reason: "الذكاء الاصطناعي اعتمد اللقطة!" };
         }
         return { ok: false, seen: raw.slice(0, 80), reason: "الذكاء الاصطناعي مش شايف المطلوب في الصورة بوضوح، صوّر تاني!" };
-      } catch {}
+      }
+
+      lastStatus = attempt.status;
+      lastDetail = attempt.error;
+
+      // Immediate stop on invalid/revoked key (401) or network/CORS failure
+      if (attempt.status === 401 || attempt.status === 403) {
+        return { ok: false, seen: "", reason: formatFriendlyError(attempt.status, attempt.error) };
+      }
+
+      // If model was deprecated/not found (400/404), auto-discover live vision models from Groq!
+      if (!discoveredOnce && (attempt.status === 400 || attempt.status === 404)) {
+        discoveredOnce = true;
+        const live = await fetchLiveGroqModels(true);
+        if (live.ok && live.models.length) {
+          const fresh = pickVisionModelsFromLive(live.models).filter((m) => live.models.includes(m));
+          for (const fm of fresh) {
+            if (!visionModels.includes(fm)) visionModels.push(fm);
+          }
+        } else if (live.status === 401 || live.status === 403) {
+          return { ok: false, seen: "", reason: formatFriendlyError(live.status, live.error) };
+        }
+      }
     }
 
     return {
       ok: false,
       seen: "",
-      reason: lastHttpErr === 429
-        ? "سيرفر الذكاء الاصطناعي عليه ضغط لحظي — استنى 5 ثواني وحاول تاني."
-        : "فشل الاتصال بسيرفر الذكاء الاصطناعي (Groq Vision) — اتأكد من النت وحاول تاني.",
+      reason: formatFriendlyError(lastStatus, lastDetail),
     };
   }
 
-  // Real Arabic Speech Verification via Groq Whisper for Voice-Dare Missions (e.g. "قول لكلب هاي كلبات")
+  // Real Arabic Speech Verification via Groq Whisper
   async function verifyMissionSpeechWithGroqWhisper(file, mission) {
     const key = getGroqKey();
     if (!key || !mission || !Array.isArray(mission.requiresSpeech) || !mission.requiresSpeech.length) {
@@ -181,40 +349,42 @@ window.Kameen = window.Kameen || {};
       return { checked: false, ok: true, transcript: "" };
     }
 
-    try {
-      const fd = new FormData();
-      fd.append("file", file, file.name || "mission.mp4");
-      fd.append("model", "whisper-large-v3-turbo");
-      fd.append("language", "ar");
-      fd.append("prompt", mission.requiresSpeech.join(" "));
+    const whisperModels = ["whisper-large-v3-turbo", "whisper-large-v3"];
+    for (const model of whisperModels) {
+      try {
+        const mime = String(file.type || "").toLowerCase();
+        let ext = "webm";
+        if (mime.includes("mp4") || mime.includes("m4a")) ext = "mp4";
+        else if (mime.includes("wav")) ext = "wav";
+        else if (mime.includes("ogg")) ext = "ogg";
+        else if (mime.includes("mpeg") || mime.includes("mp3")) ext = "mp3";
+        const fname = (file.name && /\.[a-z0-9]{2,5}$/i.test(file.name)) ? file.name : ("mission." + ext);
+        const fd = new FormData();
+        fd.append("file", file, fname);
+        fd.append("model", model);
+        fd.append("language", "ar");
+        fd.append("prompt", mission.requiresSpeech.join(" "));
 
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 14000);
-      const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-        method: "POST",
-        signal: ctrl.signal,
-        headers: { "Authorization": "Bearer " + key },
-        body: fd,
-      });
-      clearTimeout(timer);
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 18000);
+        const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          method: "POST",
+          signal: ctrl.signal,
+          headers: { "Authorization": "Bearer " + key },
+          body: fd,
+        });
+        clearTimeout(timer);
 
-      if (!res.ok) {
-        // Unsupported mobile video container codec -> don't hard-block if Vision already passed
-        return { checked: false, ok: true, transcript: "" };
-      }
-      const j = await res.json();
-      const transcript = String(j.text || "").trim();
-      const normText = normalizeArabic(transcript);
-      const targets = mission.requiresSpeech.map(normalizeArabic).filter(Boolean);
-      const matched = targets.some((w) => normText.includes(w));
-      return {
-        checked: true,
-        ok: matched,
-        transcript,
-      };
-    } catch {
-      return { checked: false, ok: true, transcript: "" };
+        if (!res.ok) continue;
+        const j = await res.json();
+        const transcript = String(j.text || "").trim();
+        const normText = normalizeArabic(transcript);
+        const targets = mission.requiresSpeech.map(normalizeArabic).filter(Boolean);
+        const matched = targets.some((w) => normText.includes(w));
+        return { checked: true, ok: matched, transcript };
+      } catch {}
     }
+    return { checked: false, ok: true, transcript: "" };
   }
 
   async function extractFramesFromFile(file) {
@@ -231,10 +401,10 @@ window.Kameen = window.Kameen || {};
         setTimeout(() => rej(new Error("timeout")), 8000);
       });
       const c = document.createElement("canvas");
-      const maxW = 512;
-      const ratio = Math.min(1, maxW / Math.max(1, img.naturalWidth || 512));
-      c.width = Math.max(240, Math.round((img.naturalWidth || 512) * ratio));
-      c.height = Math.max(180, Math.round((img.naturalHeight || 384) * ratio));
+      const maxW = 448;
+      const ratio = Math.min(1, maxW / Math.max(1, img.naturalWidth || 448));
+      c.width = Math.max(220, Math.round((img.naturalWidth || 448) * ratio));
+      c.height = Math.max(165, Math.round((img.naturalHeight || 336) * ratio));
       const ctx = c.getContext("2d");
       ctx.drawImage(img, 0, 0, c.width, c.height);
       URL.revokeObjectURL(imgUrl);
@@ -243,11 +413,10 @@ window.Kameen = window.Kameen || {};
       let lum = 0;
       for (let i = 0; i < data.length; i += 24) lum += (data[i] + data[i + 1] + data[i + 2]) / 3;
       maxAvgLum = lum / Math.max(1, data.length / 24);
-      frames.push(c.toDataURL("image/jpeg", 0.78).split(",")[1]);
+      frames.push(c.toDataURL("image/jpeg", 0.72).split(",")[1]);
       return { frames, maxAvgLum, isVideo: false };
     }
 
-    // Video: extract up to 3 evenly spaced keyframes (20%, 50%, 80%) so Vision AI catches moving cats/dogs/gestures!
     const url = URL.createObjectURL(file);
     const video = document.createElement("video");
     video.src = url;
@@ -268,8 +437,8 @@ window.Kameen = window.Kameen || {};
 
     const seekPoints = dur >= 2.2 ? [dur * 0.2, dur * 0.5, dur * 0.8] : [Math.min(0.4, dur * 0.5)];
     const c = document.createElement("canvas");
-    c.width = 400;
-    c.height = 300;
+    c.width = 360;
+    c.height = 270;
     const ctx = c.getContext("2d");
 
     for (const t of seekPoints) {
@@ -285,7 +454,7 @@ window.Kameen = window.Kameen || {};
       for (let i = 0; i < data.length; i += 24) lum += (data[i] + data[i + 1] + data[i + 2]) / 3;
       const avg = lum / Math.max(1, data.length / 24);
       if (avg > maxAvgLum) maxAvgLum = avg;
-      frames.push(c.toDataURL("image/jpeg", 0.72).split(",")[1]);
+      frames.push(c.toDataURL("image/jpeg", 0.66).split(",")[1]);
     }
 
     URL.revokeObjectURL(url);
@@ -365,9 +534,9 @@ window.Kameen = window.Kameen || {};
     }
   }
 
-  async function analyzeMissionMedia(missionId, file) {
+  async function analyzeCapturedSubmission(missionId, payload) {
     const st = K.state;
-    if (!file || !st.engine) return;
+    if (!st.engine || !payload || !Array.isArray(payload.frames) || !payload.frames.length) return;
 
     const vis = st.engine.getVisibleStateForPlayer(st.user.id);
     const mission = (vis.missions || []).find((m) => m.id === missionId);
@@ -381,35 +550,23 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    const isVideoFile = Boolean(file.type && file.type.startsWith("video/"));
-    if (mission.requiresSpeech && mission.requiresSpeech.length && !isVideoFile) {
+    if (typeof payload.maxAvgLum === "number" && payload.maxAvgLum < 9) {
       st.videoAnalyzing = false;
       st.videoVerdictTone = "error";
-      st.videoVerdict = "المهمة دي فيها صوت! لازم تصوّر فيديو قصير عشان الذكاء الاصطناعي يشوف المشهد ويسمع كلامك.";
+      st.videoVerdict = "الكاميرا ضلمة كحل! شيل إيدك من على العدسة وصوّر المهمة بوضوح.";
       K.UI.updateCameraModalStatus();
       return;
     }
 
     st.videoAnalyzing = true;
     st.videoVerdictTone = "pending";
-    st.videoVerdict = isVideoFile
-      ? "جاري استخراج اللقطات من الفيديو وفحصها بالذكاء الاصطناعي..."
-      : "جاري تحليل الصورة بالذكاء الاصطناعي (Groq Vision)...";
+    st.videoVerdict = payload.isVideo
+      ? `جاري فحص ${payload.frames.length} لقطات من الفيديو بـ Groq Vision...`
+      : "جاري تحليل الصورة بـ Groq Vision...";
     K.UI.updateCameraModalStatus();
 
     try {
-      const { frames, maxAvgLum } = await extractFramesFromFile(file);
-
-      if (maxAvgLum < 9) {
-        st.videoAnalyzing = false;
-        st.videoVerdictTone = "error";
-        st.videoVerdict = "الكاميرا ضلمة كحل! شيل إيدك من على العدسة وصوّر المهمة بوضوح.";
-        K.UI.updateCameraModalStatus();
-        return;
-      }
-
-      // 1. Visual AI Verification (Groq Vision)
-      const vision = await verifyMissionWithGroqVision(frames, mission);
+      const vision = await verifyMissionWithGroqVision(payload.frames, mission);
       if (!vision.ok) {
         st.videoAnalyzing = false;
         st.videoVerdictTone = "error";
@@ -418,17 +575,23 @@ window.Kameen = window.Kameen || {};
         return;
       }
 
-      // 2. Speech AI Verification (Groq Whisper) for voice-dare missions
       let speechNote = "";
-      if (mission.requiresSpeech && mission.requiresSpeech.length && isVideoFile) {
-        st.videoVerdict = `البصر تمام (${vision.seen || "مظبوط"}) — جاري فحص الصوت بـ Whisper AI...`;
+      if (mission.requiresSpeech && mission.requiresSpeech.length) {
+        if (!payload.audioBlob) {
+          st.videoAnalyzing = false;
+          st.videoVerdictTone = "error";
+          st.videoVerdict = "المهمة دي محتاجة صوت! اضغط زر التسجيل المباشر واتكلم بوضوح أثناء التصوير.";
+          K.UI.updateCameraModalStatus();
+          return;
+        }
+        st.videoVerdict = `البصر تمام (${vision.seen || "مظبوط"}) — جاري فحص صوتك بـ Whisper AI...`;
         K.UI.updateCameraModalStatus();
-        const speech = await verifyMissionSpeechWithGroqWhisper(file, mission);
+        const speech = await verifyMissionSpeechWithGroqWhisper(payload.audioBlob, mission);
         if (speech.checked && !speech.ok) {
           st.videoAnalyzing = false;
           st.videoVerdictTone = "error";
           const heard = speech.transcript ? `سمعت: «${speech.transcript}»` : "مسمعتش صوت واضح";
-          st.videoVerdict = `الذكاء الاصطناعي شاف المشهد صح، بس ${heard} — علّي صوتك وقول المطلوب بوضوح في الفيديو!`;
+          st.videoVerdict = `الذكاء الاصطناعي شاف المشهد صح، بس ${heard} — علّي صوتك وقول المطلوب بوضوح في التسجيل!`;
           K.UI.updateCameraModalStatus();
           return;
         }
@@ -437,7 +600,6 @@ window.Kameen = window.Kameen || {};
         }
       }
 
-      // PASSED BOTH VISION (+ SPEECH IF REQUIRED)!
       const summaryVerdict = `${vision.seen ? `AI شاف: ${vision.seen} — ` : ""}${vision.reason}${speechNote}`;
       st.videoAnalyzing = false;
       st.videoVerdictTone = "success";
@@ -446,6 +608,7 @@ window.Kameen = window.Kameen || {};
       K.SFX.play("win");
 
       setTimeout(() => {
+        if (K.Camera && typeof K.Camera.stop === "function") K.Camera.stop();
         if (K.state.modal === "camera" && K.state.activeCameraMissionId === missionId) {
           K.state.modal = null;
           K.state.videoVerdict = null;
@@ -457,22 +620,63 @@ window.Kameen = window.Kameen || {};
           aiNote: vision.seen || vision.reason,
         });
       }, 1100);
+    } catch {
+      st.videoAnalyzing = false;
+      st.videoVerdictTone = "error";
+      st.videoVerdict = "حصل خطأ أثناء التحليل — جرّب تصوّر تاني.";
+      K.UI.updateCameraModalStatus();
+    }
+  }
+
+  async function analyzeMissionMedia(missionId, file) {
+    const st = K.state;
+    if (!file || !st.engine) return;
+
+    const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+    const mission = (vis.missions || []).find((m) => m.id === missionId);
+    if (!mission) return;
+
+    const isVideoFile = Boolean(file.type && file.type.startsWith("video/"));
+    if (mission.requiresSpeech && mission.requiresSpeech.length && !isVideoFile) {
+      st.videoAnalyzing = false;
+      st.videoVerdictTone = "error";
+      st.videoVerdict = "المهمة دي فيها صوت! لازم تصوّر فيديو بالصوت عشان الذكاء الاصطناعي يسمع كلامك.";
+      K.UI.updateCameraModalStatus();
+      return;
+    }
+
+    st.videoAnalyzing = true;
+    st.videoVerdictTone = "pending";
+    st.videoVerdict = "جاري تجهيز اللقطات للفحص بالذكاء الاصطناعي...";
+    K.UI.updateCameraModalStatus();
+
+    try {
+      const { frames, maxAvgLum } = await extractFramesFromFile(file);
+      await analyzeCapturedSubmission(missionId, {
+        frames,
+        maxAvgLum,
+        audioBlob: isVideoFile ? file : null,
+        isVideo: isVideoFile,
+      });
     } catch (err) {
       st.videoAnalyzing = false;
       st.videoVerdictTone = "error";
       st.videoVerdict = err && err.message === "TOO_LONG"
-        ? "الفيديو أطول من 25 ثانية — صوّر فيديو قصير (3 لـ 8 ثواني) عشان يتحلل بسرعة!"
-        : "معرفتش أقرأ الملف — جرّب تصوّر لقطة قصيرة تاني.";
+        ? "الفيديو أطول من 25 ثانية — صوّر فيديو قصير (3 لـ 8 ثواني)!"
+        : "معرفتش أقرأ الملف — جرّب التصوير المباشر من جوه الموقع.";
       K.UI.updateCameraModalStatus();
     }
   }
 
   K.AI = {
+    getGroqKey,
+    testConnection,
     callGroqChat,
     verifyMissionWithGroqVision,
     verifyMissionSpeechWithGroqWhisper,
     triggerProfilerReport,
     generateMatchRecap,
+    analyzeCapturedSubmission,
     analyzeMissionMedia,
   };
 })(window.Kameen);

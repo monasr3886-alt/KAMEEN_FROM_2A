@@ -38,8 +38,8 @@ window.Kameen = window.Kameen || {};
       lastFixAt: 0,
       lastSentAt: 0,
     },
-    camera: { status: "idle", error: null },
-    groqKey: localStorage.getItem("kameen_groq_key") || K.CONFIG.DEFAULT_GROQ_KEY,
+    camera: { status: "idle", error: null, facingMode: "environment", ready: false, recording: false, recSec: 0, maxRecSec: 8 },
+    groqKey: (() => { const s = String(localStorage.getItem("kameen_groq_key") || "").replace(/[^\x21-\x7E]/g, "").trim(); return (s.startsWith("gsk_") && s.length >= 20) ? s : K.CONFIG.DEFAULT_GROQ_KEY; })(),
     sbStatus: K.Network.hasSupabase ? "ready" : "offline",
     roomChannel: null,
     joinedCode: null,
@@ -197,7 +197,7 @@ window.Kameen = window.Kameen || {};
   async function requestCameraPerm(silent = false) {
     const st = K.state;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } }, audio: true }).catch(() => navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
       stream.getTracks().forEach((t) => t.stop());
       st.camera.status = "granted";
       st.camera.error = null;
@@ -265,6 +265,7 @@ window.Kameen = window.Kameen || {};
   }
 
   function navigate(nextRoute) {
+    stopInAppCamera();
     const st = K.state;
     st.route = nextRoute;
     const isMap = nextRoute === "create" || nextRoute === "game" || nextRoute === "simulation";
@@ -617,8 +618,9 @@ window.Kameen = window.Kameen || {};
   };
 
   window.onNav = (route) => { K.SFX.play("click"); navigate(route); };
-  window.onOpenModal = (name) => { K.SFX.play("click"); K.state.modal = name; K.UI.renderModal(); };
+  window.onOpenModal = (name) => { if (name !== "camera") stopInAppCamera(); K.SFX.play("click"); K.state.modal = name; K.UI.renderModal(); };
   window.onCloseModal = () => {
+    stopInAppCamera();
     K.state.modal = null;
     K.UI.renderModal();
     if (K.state.route === "game" || K.state.route === "simulation") K.UI.updateHudOnly();
@@ -868,6 +870,7 @@ window.Kameen = window.Kameen || {};
     K.state.videoAnalyzing = false;
     K.state.modal = "camera";
     K.UI.renderModal();
+    setTimeout(() => void startInAppCamera(missionId), 40);
   };
 
   window.onSendMeetingChat = () => {
@@ -964,12 +967,351 @@ window.Kameen = window.Kameen || {};
     K.showToast("تم إلغاء التعديل اليدوي");
   };
 
+  window.onTestGroqConnection = async () => {
+    const out = document.getElementById("groq-test-result");
+    if (out) {
+      out.classList.remove("hidden");
+      out.style.color = "#FCD34D";
+      out.textContent = "جاري فحص الاتصال بسيرفر Groq...";
+    }
+    const res = await K.AI.testConnection();
+    if (out) {
+      out.classList.remove("hidden");
+      out.style.color = res.ok ? "#34D399" : "#FF6B7D";
+      out.textContent = res.message;
+    }
+    K.showToast(res.ok ? "سيرفر الذكاء الاصطناعي متصل وشغال!" : "فشل فحص الاتصال — شوف السبب في الإعدادات");
+  };
+
+  window.onResetDefaultGroqKey = () => {
+    const defKey = K.CONFIG.DEFAULT_GROQ_KEY || "";
+    K.state.groqKey = defKey;
+    try { localStorage.removeItem("kameen_groq_key"); } catch {}
+    K.UI.renderModal();
+    K.showToast("تمت استعادة المفتاح المدمج");
+  };
+
   window.addEventListener("resize", () => K.Map.resize());
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible" && (K.state.route === "game" || K.state.route === "simulation")) {
       void K.WakeLock.acquire();
     }
   });
+
+
+  // =========================================================================
+  // IN-APP LIVE CAMERA & VIDEO/AUDIO RECORDER (NEVER LEAVES THE BROWSER!)
+  // =========================================================================
+  const camCtrl = {
+    stream: null,
+    recorder: null,
+    chunks: [],
+    capturedFrames: [],
+    capturedMaxLum: 0,
+    recTimer: null,
+    frameTimer: null,
+    startedAtMs: 0,
+    wantsAudio: false,
+    recordingMissionId: null,
+  };
+
+  function grabLiveVideoFrame() {
+    const video = document.getElementById("inapp-cam-video");
+    if (!video || !video.videoWidth || !video.videoHeight) return null;
+    const c = document.createElement("canvas");
+    const maxW = 448;
+    const ratio = Math.min(1, maxW / video.videoWidth);
+    c.width = Math.max(220, Math.round(video.videoWidth * ratio));
+    c.height = Math.max(165, Math.round(video.videoHeight * ratio));
+    const ctx = c.getContext("2d");
+    ctx.drawImage(video, 0, 0, c.width, c.height);
+    const data = ctx.getImageData(0, 0, c.width, c.height).data;
+    let lum = 0;
+    for (let i = 0; i < data.length; i += 24) lum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+    const avgLum = lum / Math.max(1, data.length / 24);
+    const b64 = c.toDataURL("image/jpeg", 0.74).split(",")[1];
+    return { b64, avgLum };
+  }
+
+  function stopInAppCamera() {
+    if (camCtrl.recTimer) { clearInterval(camCtrl.recTimer); camCtrl.recTimer = null; }
+    if (camCtrl.frameTimer) { clearInterval(camCtrl.frameTimer); camCtrl.frameTimer = null; }
+    if (camCtrl.recorder && camCtrl.recorder.state !== "inactive") {
+      try { camCtrl.recorder.onstop = null; camCtrl.recorder.stop(); } catch {}
+    }
+    camCtrl.recorder = null;
+    camCtrl.chunks = [];
+    if (camCtrl.stream) {
+      try { camCtrl.stream.getTracks().forEach((t) => t.stop()); } catch {}
+      camCtrl.stream = null;
+    }
+    const video = document.getElementById("inapp-cam-video");
+    if (video) {
+      try { video.srcObject = null; } catch {}
+    }
+    K.state.camera.ready = false;
+    K.state.camera.recording = false;
+    K.state.camera.recSec = 0;
+  }
+
+  async function startInAppCamera(missionId) {
+    stopInAppCamera();
+    const st = K.state;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      st.camera.status = "denied";
+      st.camera.error = "المتصفح مش بيدعم الكاميرا المباشرة — استخدم زر رفع ملف من تحت.";
+      K.UI.updateCameraModalStatus();
+      return;
+    }
+
+    const vis = st.engine ? st.engine.getVisibleStateForPlayer(st.user.id) : null;
+    const mission = vis ? (vis.missions || []).find((m) => m.id === missionId) : null;
+    const wantsAudio = Boolean(mission && mission.requiresSpeech && mission.requiresSpeech.length);
+    camCtrl.wantsAudio = wantsAudio;
+    st.camera.status = "starting";
+    st.camera.error = null;
+    st.camera.ready = false;
+    K.UI.updateCameraModalStatus();
+
+    const facing = st.camera.facingMode || "environment";
+    const attempts = [
+      { video: { facingMode: { ideal: facing }, width: { ideal: 640 }, height: { ideal: 480 } }, audio: wantsAudio },
+      { video: { facingMode: facing }, audio: wantsAudio },
+      { video: true, audio: wantsAudio },
+      { video: true, audio: false },
+    ];
+
+    let stream = null;
+    let lastErr = null;
+    for (const constraints of attempts) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia(constraints);
+        if (stream) break;
+      } catch (e) {
+        lastErr = e;
+      }
+    }
+
+    if (!stream) {
+      st.camera.status = "denied";
+      st.camera.error = (lastErr && lastErr.name === "NotAllowedError")
+        ? "تم رفض إذن الكاميرا/المايك — فعّله من علامة القفل جنب رابط الموقع فوق."
+        : "معرفتش أفتح الكاميرا المباشرة — جرّب تقلب الكاميرا أو استخدم زر رفع ملف من تحت.";
+      K.UI.updateCameraModalStatus();
+      return;
+    }
+
+    // If modal was closed while waiting for permission, stop immediately!
+    if (st.modal !== "camera") {
+      try { stream.getTracks().forEach((t) => t.stop()); } catch {}
+      return;
+    }
+
+    camCtrl.stream = stream;
+    st.camera.status = "granted";
+    st.camera.error = null;
+
+    const video = document.getElementById("inapp-cam-video");
+    if (video) {
+      video.srcObject = stream;
+      video.muted = true;
+      video.playsInline = true;
+      try { await video.play(); } catch {}
+    }
+
+    st.camera.ready = true;
+    K.UI.updateCameraModalStatus();
+  }
+
+  function flipInAppCamera() {
+    K.SFX.play("click");
+    K.state.camera.facingMode = K.state.camera.facingMode === "environment" ? "user" : "environment";
+    void startInAppCamera(K.state.activeCameraMissionId);
+  }
+
+  function takeInAppPhoto() {
+    const st = K.state;
+    if (st.videoAnalyzing || st.camera.recording) return;
+    const snap = grabLiveVideoFrame();
+    if (!snap) {
+      K.showToast("استنى ثانية الكاميرا تفتح بوضوح");
+      return;
+    }
+    K.SFX.play("click");
+    void K.AI.analyzeCapturedSubmission(st.activeCameraMissionId, {
+      frames: [snap.b64],
+      maxAvgLum: snap.avgLum,
+      audioBlob: null,
+      isVideo: false,
+    });
+  }
+
+  function pickBestRecorderOptions(stream, wantsAudio) {
+    if (typeof MediaRecorder === "undefined") return null;
+    const audioTracks = stream.getAudioTracks();
+    // For speech dares, recording ONLY the lightweight audio track (40KB) makes Groq Whisper instant on 4G!
+    if (wantsAudio && audioTracks.length > 0) {
+      const audioStream = new MediaStream(audioTracks);
+      const audioMimes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+      for (const m of audioMimes) {
+        try {
+          if (MediaRecorder.isTypeSupported(m)) return { targetStream: audioStream, mimeType: m };
+        } catch {}
+      }
+      return { targetStream: audioStream, mimeType: "" };
+    }
+    // Otherwise try light video recording
+    const videoMimes = ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
+    for (const m of videoMimes) {
+      try {
+        if (MediaRecorder.isTypeSupported(m)) return { targetStream: stream, mimeType: m };
+      } catch {}
+    }
+    return { targetStream: stream, mimeType: "" };
+  }
+
+  function finishInAppRecording() {
+    const st = K.state;
+    if (!st.camera.recording) return;
+    st.camera.recording = false;
+
+    if (camCtrl.recTimer) { clearInterval(camCtrl.recTimer); camCtrl.recTimer = null; }
+    if (camCtrl.frameTimer) { clearInterval(camCtrl.frameTimer); camCtrl.frameTimer = null; }
+
+    // Grab final closing frame right at stop
+    const endSnap = grabLiveVideoFrame();
+    if (endSnap) {
+      camCtrl.capturedFrames.push(endSnap.b64);
+      if (endSnap.avgLum > camCtrl.capturedMaxLum) camCtrl.capturedMaxLum = endSnap.avgLum;
+    }
+
+    // Keep up to 3 well-spaced frames (start, middle, end)
+    let frames = camCtrl.capturedFrames;
+    if (frames.length > 3) {
+      frames = [frames[0], frames[Math.floor(frames.length / 2)], frames[frames.length - 1]];
+    }
+    const maxLum = camCtrl.capturedMaxLum;
+    const mId = camCtrl.recordingMissionId || st.activeCameraMissionId;
+    const wantsAudio = camCtrl.wantsAudio;
+
+    K.UI.updateCameraModalStatus();
+
+    const submitNow = (audioBlob) => {
+      if (!frames.length) {
+        st.videoVerdictTone = "error";
+        st.videoVerdict = "معرفتش ألقط صورة من الكاميرا — حاول تاني.";
+        K.UI.updateCameraModalStatus();
+        return;
+      }
+      void K.AI.analyzeCapturedSubmission(mId, {
+        frames,
+        maxAvgLum: maxLum,
+        audioBlob: wantsAudio ? audioBlob : null,
+        isVideo: true,
+      });
+    };
+
+    if (camCtrl.recorder && camCtrl.recorder.state !== "inactive") {
+      const rec = camCtrl.recorder;
+      const recMime = rec.mimeType || "audio/webm";
+      rec.onstop = () => {
+        const blob = camCtrl.chunks.length ? new Blob(camCtrl.chunks, { type: recMime }) : null;
+        camCtrl.chunks = [];
+        camCtrl.recorder = null;
+        submitNow(blob);
+      };
+      try { rec.stop(); } catch { submitNow(null); }
+    } else {
+      submitNow(null);
+    }
+  }
+
+  function toggleInAppRecord() {
+    const st = K.state;
+    if (st.videoAnalyzing) return;
+
+    if (st.camera.recording) {
+      K.SFX.play("click");
+      finishInAppRecording();
+      return;
+    }
+
+    if (!camCtrl.stream || !st.camera.ready) {
+      K.showToast("استنى الكاميرا تفتح الأول");
+      return;
+    }
+
+    K.SFX.play("click");
+    st.camera.recording = true;
+    st.camera.recSec = 0;
+    st.videoVerdict = null;
+    camCtrl.chunks = [];
+    camCtrl.capturedFrames = [];
+    camCtrl.capturedMaxLum = 0;
+    camCtrl.startedAtMs = Date.now();
+    camCtrl.recordingMissionId = st.activeCameraMissionId;
+
+    // Grab initial frame immediately
+    const firstSnap = grabLiveVideoFrame();
+    if (firstSnap) {
+      camCtrl.capturedFrames.push(firstSnap.b64);
+      camCtrl.capturedMaxLum = firstSnap.avgLum;
+    }
+
+    // Grab a keyframe every 2 seconds while moving/chasing!
+    camCtrl.frameTimer = setInterval(() => {
+      if (!st.camera.recording) return;
+      const snap = grabLiveVideoFrame();
+      if (snap) {
+        camCtrl.capturedFrames.push(snap.b64);
+        if (snap.avgLum > camCtrl.capturedMaxLum) camCtrl.capturedMaxLum = snap.avgLum;
+      }
+    }, 2000);
+
+    // Start MediaRecorder for speech missions (captures clear voice for Groq Whisper!)
+    if (camCtrl.wantsAudio) {
+      const opt = pickBestRecorderOptions(camCtrl.stream, true);
+      if (opt) {
+        try {
+          const rec = opt.mimeType
+            ? new MediaRecorder(opt.targetStream, { mimeType: opt.mimeType })
+            : new MediaRecorder(opt.targetStream);
+          rec.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size > 0) camCtrl.chunks.push(ev.data);
+          };
+          rec.start(250);
+          camCtrl.recorder = rec;
+        } catch {
+          camCtrl.recorder = null;
+        }
+      }
+    }
+
+    // Live timer + auto-stop at 8 seconds so it stays super crisp & fast!
+    camCtrl.recTimer = setInterval(() => {
+      const sec = Math.min(st.camera.maxRecSec, (Date.now() - camCtrl.startedAtMs) / 1000);
+      st.camera.recSec = sec;
+      K.UI.updateCameraModalStatus();
+      if (sec >= st.camera.maxRecSec) {
+        finishInAppRecording();
+      }
+    }, 200);
+
+    K.UI.updateCameraModalStatus();
+  }
+
+  K.Camera = {
+    start: startInAppCamera,
+    stop: stopInAppCamera,
+    flip: flipInAppCamera,
+    takePhoto: takeInAppPhoto,
+    toggleRecord: toggleInAppRecord,
+  };
+
+  window.onCamFlip = () => K.Camera.flip();
+  window.onCamTakePhoto = () => K.Camera.takePhoto();
+  window.onCamToggleRecord = () => K.Camera.toggleRecord();
+  window.onCamRetryStart = () => void K.Camera.start(K.state.activeCameraMissionId);
 
   K.App = {
     isMatchHost, startRealGps, recalibrateGps, startCompass, headingToArabic,

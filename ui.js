@@ -527,8 +527,8 @@ window.Kameen = window.Kameen || {};
             <div style="height:1px;background:var(--border);"></div>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
               <div>
-                <div style="font-size:13px;font-weight:800;">الكاميرا</div>
-                <div style="font-size:11px;color:var(--muted);">لتوثيق المهام الميدانية داخل المنطقة</div>
+                <div style="font-size:13px;font-weight:800;">الكاميرا والمايكروفون</div>
+                <div style="font-size:11px;color:var(--muted);">للتصوير المباشر من جوه الموقع بدون ما تخرج منه</div>
               </div>
               <span class="pill ${st.camera.status === "granted" ? "pill-green" : ""}">${st.camera.status === "granted" ? "مفعّلة" : "اختياري"}</span>
             </div>
@@ -989,11 +989,44 @@ window.Kameen = window.Kameen || {};
         vEl.style.color = "#FCD34D";
       }
     }
-    const lbl = document.getElementById("cam-upload-lbl");
-    if (lbl) {
-      lbl.textContent = st.videoAnalyzing
-        ? "الذكاء الاصطناعي بيفحص اللقطة..."
-        : (lbl.dataset.defaultLabel || "التقط صورة أو فيديو الآن");
+
+    const overlay = document.getElementById("cam-status-overlay");
+    if (overlay) {
+      if (st.camera.ready) {
+        overlay.classList.add("hidden");
+      } else {
+        overlay.classList.remove("hidden");
+        overlay.innerHTML = st.camera.error
+          ? `<div style="color:#FF6B7D;">${esc(st.camera.error)}</div><button class="btn btn-outline btn-xs" onclick="onCamRetryStart()">إعادة تشغيل الكاميرا</button>`
+          : `<div>جاري فتح الكاميرا المباشرة جوه الموقع...</div>`;
+      }
+    }
+
+    const recPill = document.getElementById("cam-rec-pill");
+    if (recPill) {
+      recPill.classList.toggle("hidden", !st.camera.recording);
+      const secTxt = document.getElementById("cam-rec-sec");
+      if (secTxt) {
+        secTxt.textContent = `${st.camera.recSec.toFixed(1)}ث / ${st.camera.maxRecSec}ث`;
+      }
+    }
+
+    const recBtn = document.getElementById("cam-rec-btn");
+    if (recBtn) {
+      recBtn.disabled = !st.camera.ready || st.videoAnalyzing;
+      if (st.videoAnalyzing) {
+        recBtn.textContent = "الذكاء الاصطناعي بيفحص اللقطة...";
+      } else if (st.camera.recording) {
+        recBtn.textContent = `إيقاف وإرسال للذكاء الاصطناعي (${Math.ceil(st.camera.recSec)}ث)`;
+      } else {
+        recBtn.textContent = recBtn.dataset.defaultLabel || "ابدأ تسجيل فيديو مباشر";
+      }
+    }
+
+    const photoBtn = document.getElementById("cam-photo-btn");
+    if (photoBtn) {
+      photoBtn.disabled = !st.camera.ready || st.videoAnalyzing || st.camera.recording;
+      photoBtn.textContent = st.videoAnalyzing ? "جاري التحليل بـ AI..." : "التقاط صورة فورية للـ AI";
     }
   }
 
@@ -1114,15 +1147,20 @@ window.Kameen = window.Kameen || {};
         `}
       </div>
 
-      <div class="card" style="display:flex;flex-direction:column;gap:6px;">
+      <div class="card" style="display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;justify-content:space-between;align-items:center;">
           <span class="eyebrow">مفتاح الذكاء الاصطناعي (GROQ AI)</span>
-          <span class="pill ${hasKey ? "pill-green" : "pill-amber"}">${hasKey ? "متصل" : "غير مضاف"}</span>
+          <span class="pill ${hasKey ? "pill-green" : "pill-amber"}">${hasKey ? "محفوظ" : "غير مضاف"}</span>
         </div>
         <input class="input" style="padding:9px 11px;font-size:12px;direction:ltr;" type="password"
           placeholder="gsk_..."
           value="${esc(st.groqKey)}"
-          oninput="Kameen.state.groqKey=this.value;try{localStorage.setItem('kameen_groq_key',this.value)}catch{}" />
+          oninput="const v=this.value.replace(/[^\x21-\x7E]/g,'').trim();Kameen.state.groqKey=v;try{localStorage.setItem('kameen_groq_key',v)}catch{}" />
+        <div class="grid-2">
+          <button class="btn btn-cyan btn-xs" onclick="void onTestGroqConnection()">فحص اتصال AI الآن</button>
+          <button class="btn btn-outline btn-xs" onclick="onResetDefaultGroqKey()">استعادة المفتاح المدمج</button>
+        </div>
+        <div id="groq-test-result" class="hidden" style="font-size:11.5px;font-weight:800;line-height:1.5;padding:6px 8px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);"></div>
       </div>
 
       ${inMatch ? `
@@ -1380,42 +1418,83 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // 12. Mission Camera Proof (Strict Groq Vision + Whisper AI Referee)
+    // 12. Mission In-App Live Camera & Video Recorder (NO External App / ZERO Disconnect!)
     if (st.modal === "camera" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const m = (vis.missions || []).find((x) => x.id === st.activeCameraMissionId);
-      const hasKey = Boolean(((st.groqKey || K.CONFIG.DEFAULT_GROQ_KEY || "")).trim());
-      const needVideo = Boolean(m && (m.mediaType === "video" || (m.requiresSpeech && m.requiresSpeech.length)));
-      const acceptAttr = (m && m.requiresSpeech && m.requiresSpeech.length) ? "video/*" : "image/*,video/*";
-      const btnLabel = (m && m.requiresSpeech && m.requiresSpeech.length)
-        ? "صوّر فيديو قصير بالصوت (3-8 ثواني)"
-        : (needVideo ? "صوّر فيديو قصير (3-8 ثواني)" : "صوّر صورة أو فيديو للمهمة");
+      const hasKey = Boolean(K.AI.getGroqKey());
+      const wantsSpeech = Boolean(m && m.requiresSpeech && m.requiresSpeech.length);
+      const wantsVideo = Boolean(m && (m.mediaType === "video" || wantsSpeech));
+      const acceptAttr = wantsSpeech ? "video/*" : "image/*,video/*";
+      const recDefaultLabel = wantsSpeech
+        ? "ابدأ تسجيل فيديو بالصوت (حتى 8ث)"
+        : "ابدأ تسجيل فيديو مباشر (حتى 8ث)";
+
+      const controlsHtml = wantsSpeech
+        ? `
+          <button id="cam-rec-btn" class="btn btn-primary" style="width:100%;padding:13px;" data-default-label="${esc(recDefaultLabel)}" onclick="onCamToggleRecord()">
+            ${recDefaultLabel}
+          </button>
+        `
+        : (wantsVideo
+            ? `
+              <button id="cam-rec-btn" class="btn btn-primary" style="width:100%;padding:13px;" data-default-label="${esc(recDefaultLabel)}" onclick="onCamToggleRecord()">
+                ${recDefaultLabel}
+              </button>
+              <button id="cam-photo-btn" class="btn btn-outline btn-sm" style="width:100%;" onclick="onCamTakePhoto()">
+                التقاط صورة فورية للـ AI
+              </button>
+            `
+            : `
+              <button id="cam-photo-btn" class="btn btn-primary" style="width:100%;padding:13px;" onclick="onCamTakePhoto()">
+                التقاط صورة فورية للـ AI
+              </button>
+              <button id="cam-rec-btn" class="btn btn-outline btn-sm" style="width:100%;" data-default-label="${esc(recDefaultLabel)}" onclick="onCamToggleRecord()">
+                ${recDefaultLabel}
+              </button>
+            `);
 
       const body = `
         ${m ? `
-          <div class="card" style="border-right:3px solid var(--amber);padding:12px;">
-            <div style="font-weight:900;font-size:14px;color:var(--text);">${esc(m.title)}</div>
-            <div style="font-size:12px;color:var(--muted);font-weight:600;margin-top:4px;line-height:1.55;">${esc(m.description)}</div>
-            <div style="font-size:11px;color:var(--cyan);font-weight:800;margin-top:7px;">فحص AI: ${esc(m.aiHintAr || "الذكاء الاصطناعي هيفحص اللقطة بدقة.")}</div>
+          <div class="card" style="border-right:3px solid var(--amber);padding:10px 12px;">
+            <div style="font-weight:900;font-size:13.5px;color:var(--text);">${esc(m.title)}</div>
+            <div style="font-size:11.5px;color:var(--muted);font-weight:600;margin-top:3px;line-height:1.5;">${esc(m.description)}</div>
+            <div style="font-size:10.5px;color:var(--cyan);font-weight:800;margin-top:5px;">فحص AI: ${esc(m.aiHintAr || "الذكاء الاصطناعي هيفحص اللقطة بدقة.")}</div>
           </div>
         ` : ""}
         ${!hasKey ? `
           <div class="intel-item" style="border-right-color:var(--crimson);">
-            مفتاح Groq AI غير مضاف! عشان الذكاء الاصطناعي يحلل المهمة، اضغط الزرار اللي تحت والصق مفتاحك.
-            <button class="btn btn-crimson-outline btn-xs" style="width:100%;margin-top:8px;" onclick="onOpenModal('game_settings')">إضافة مفتاح Groq AI الآن</button>
+            مفتاح Groq AI غير مضاف!
+            <button class="btn btn-crimson-outline btn-xs" style="width:100%;margin-top:6px;" onclick="onOpenModal('game_settings')">إضافة مفتاح Groq AI</button>
           </div>
         ` : ""}
+        <div class="cam-stage">
+          <video id="inapp-cam-video" class="cam-video" autoplay playsinline muted></video>
+          <div class="cam-overlay-top">
+            <div id="cam-rec-pill" class="cam-rec-pill hidden">
+              <span class="cam-rec-dot"></span>
+              <span id="cam-rec-sec" class="tnum">0.0ث / 8ث</span>
+            </div>
+            <button class="cam-mini-btn" onclick="onCamFlip()">قلب الكاميرا</button>
+          </div>
+          <div id="cam-status-overlay" class="cam-status-overlay">
+            <div>جاري فتح الكاميرا المباشرة جوه الموقع...</div>
+          </div>
+        </div>
         <div id="cam-verdict-box" class="${st.videoVerdict ? "" : "hidden"}"
-          style="background:var(--amber-tint);border:1px solid var(--amber-border);color:#FCD34D;padding:11px;border-radius:10px;font-size:12px;font-weight:800;text-align:center;line-height:1.6;">
+          style="background:var(--amber-tint);border:1px solid var(--amber-border);color:#FCD34D;padding:10px;border-radius:10px;font-size:12px;font-weight:800;text-align:center;line-height:1.55;">
           ${esc(st.videoVerdict || "")}
         </div>
-        <label class="btn btn-primary" style="width:100%;cursor:pointer;padding:14px;${!hasKey ? "opacity:0.45;" : ""}">
-          <span id="cam-upload-lbl" data-default-label="${esc(btnLabel)}">${st.videoAnalyzing ? "الذكاء الاصطناعي بيفحص اللقطة..." : btnLabel}</span>
-          <input type="file" accept="${acceptAttr}" capture="environment" style="display:none;"
-            onchange="if(this.files&&this.files[0])void Kameen.AI.analyzeMissionMedia(Kameen.state.activeCameraMissionId, this.files[0]);this.value='';" />
-        </label>
+        <div style="display:flex;flex-direction:column;gap:7px;">
+          ${controlsHtml}
+          <label style="text-align:center;font-size:11px;color:var(--muted);font-weight:700;cursor:pointer;padding:4px 0;">
+            أو رفع صورة/فيديو من الجهاز (بديل)
+            <input type="file" accept="${acceptAttr}" style="display:none;"
+              onchange="if(this.files&&this.files[0])void Kameen.AI.analyzeMissionMedia(Kameen.state.activeCameraMissionId, this.files[0]);this.value='';" />
+          </label>
+        </div>
       `;
-      mr.innerHTML = bottomSheetHtml("توثيق المهمة بالذكاء الاصطناعي", body, "var(--amber)");
+      mr.innerHTML = bottomSheetHtml("كاميرا كمين المباشرة (AI)", body, "var(--amber)");
       updateCameraModalStatus();
       return;
     }
