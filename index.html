@@ -13,7 +13,7 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="" />
   <link rel="stylesheet" href="./styles.css" />
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
@@ -24,30 +24,30 @@
   <div id="heartbeat-vignette" class="hidden"></div>
   <div id="toast-root"></div>
 
-  <!-- Native Liquid-Glass App Shell -->
+  <!-- Non-Map Tactical App Shell (Permissions Gate / Home / Lobby / Meeting / Result / HowTo / Profile) -->
   <div id="app-shell" class="app-shell">
     <header id="app-header" class="app-topbar"></header>
     <main id="page-root" class="app-scroll"></main>
     <nav id="app-tabbar" class="app-tabbar"></nav>
   </div>
 
-  <!-- Full-Bleed Tactical Street Radar Screen (Zero Satellite / Zero Clutter) -->
+  <!-- Full-Bleed Zero-Overlap Tactical Radar Screen -->
   <div id="map-screen" class="hidden">
     <div id="persistent-gl-map"></div>
     <svg id="fallback-radar" class="hidden" viewBox="0 0 400 700" preserveAspectRatio="xMidYMid slice"></svg>
-    <div id="radar-fx-overlay" class="radar-fx-overlay" aria-hidden="true">
-      <div class="radar-ring r1"></div>
-      <div class="radar-ring r2"></div>
-      <div class="radar-ring r3"></div>
-      <div class="radar-sweep-arm"></div>
+
+    <!-- Bounded Flex Overlay: Guarantees ZERO overlap on any screen size -->
+    <div class="map-hud-shell">
+      <div id="map-hud-top" class="hud-zone-top"></div>
+      <div class="hud-zone-mid">
+        <div id="map-side-fabs" class="hud-side-rail"></div>
+        <div id="sim-dpad-root" class="sim-dpad hidden"></div>
+      </div>
+      <div id="map-hud-bottom" class="hud-zone-bottom"></div>
     </div>
-    <div id="map-hud-top"></div>
-    <div id="map-side-fabs"></div>
-    <div id="sim-dpad-root" class="hidden"></div>
-    <div id="map-hud-bottom"></div>
   </div>
 
-  <!-- Bloody Liquid-Glass Bottom Sheets & Role Modals -->
+  <!-- Tactical Slide-Up Drawers & Focus Modals -->
   <div id="modal-root"></div>
 
   <script src="./config.js"></script>

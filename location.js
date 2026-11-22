@@ -6,50 +6,46 @@ window.Kameen = window.Kameen || {};
   const EARTH_R = 6371000;
   const DEG2RAD = Math.PI / 180;
   const RAD2DEG = 180 / Math.PI;
-  const MAX_ANCHOR_BIAS_M = 35; // Anti-cheat clamp for manual anchor bias
+  const MAX_ANCHOR_BIAS_M = 35;
 
-  // Internal filter & sensor state
   const F = {
     // Local Tangent Plane (ENU) origin
     originLat: null,
     originLng: null,
     cosLat: 1,
 
-    // 2D Kalman State: position (m) & velocity (m/s) in ENU
-    E: 0,
-    N: 0,
-    vE: 0,
-    vN: 0,
-    pE: 2500,   // position variance East (m^2)
-    pN: 2500,   // position variance North (m^2)
-    pVE: 4,     // velocity variance East ((m/s)^2)
-    pVN: 4,     // velocity variance North ((m/s)^2)
+    // 2D Kalman State (m, m/s)
+    E: 0, N: 0,
+    vE: 0, vN: 0,
+    pE: 2500, pN: 2500,
+    pVE: 4, pVN: 4,
     lastPredictMs: 0,
 
-    // Manual Anchor Bias (eliminates systematic local canyon/multipath offset)
-    biasE: 0,
-    biasN: 0,
-    biasActive: false,
+    // Optional site bias cancellation
+    biasE: 0, biasN: 0, biasActive: false,
 
-    // Telemetry & quality metrics
+    // GNSS telemetry
     hasFix: false,
-    rawLat: null,
-    rawLng: null,
-    rawAcc: null,
-    fusedAcc: null,
+    rawLat: null, rawLng: null,
+    rawAcc: null, fusedAcc: null,
     lastFixMs: 0,
     acceptedFixes: 0,
     rejectedOutliers: 0,
     lastRawAcc: Infinity,
 
-    // Compass & Heading
+    // Rock-Solid Tilt-Compensated Compass (Circular Median + Circular EMA + Deadband)
     headingDeg: null,
+    displayedHeadingDeg: null,
     headingSource: null,
     compassActive: false,
     compassBound: false,
+    compassSin: 0,
+    compassCos: 1,
+    compassReady: false,
+    compassBuf: [], // last 7 angles for median spike rejection
     lastHeadingPaintMs: 0,
 
-    // Accelerometer / ZUPT / PDR Step Counter
+    // Accelerometer / ZUPT+ / PDR Step Counter
     motionActive: false,
     motionBound: false,
     gravity: { x: 0, y: 0, z: 9.81 },
@@ -60,15 +56,16 @@ window.Kameen = window.Kameen || {};
     lastMovementMs: 0,
     stepsTotal: 0,
     lastStepMs: 0,
-    stepPhase: "idle", // "idle" | "peak"
+    stepPhase: "idle",
     stepPeakVal: 0,
     stepMinVal: 0,
-    cadenceStrideM: 0.70,
 
-    // Watch handles
+    // Watch & warmup handles
     watchId: null,
     watchdogTimer: null,
     warmupTimers: [],
+    autoUnlockInstalled: false,
+    lastBoostMs: 0,
 
     // Callbacks
     onLocationUpdate: null,
@@ -76,7 +73,6 @@ window.Kameen = window.Kameen || {};
     onError: null,
   };
 
-  // --- ENU Coordinate Projections ---
   function setOrigin(lat, lng) {
     F.originLat = lat;
     F.originLng = lng;
@@ -84,21 +80,21 @@ window.Kameen = window.Kameen || {};
   }
 
   function llToEnu(lat, lng) {
-    const north = (lat - F.originLat) * DEG2RAD * EARTH_R;
-    const east = (lng - F.originLng) * DEG2RAD * EARTH_R * F.cosLat;
-    return { e: east, n: north };
+    return {
+      e: (lng - F.originLng) * DEG2RAD * EARTH_R * F.cosLat,
+      n: (lat - F.originLat) * DEG2RAD * EARTH_R,
+    };
   }
 
   function enuToLl(e, n) {
-    const lat = F.originLat + (n / EARTH_R) * RAD2DEG;
-    const lng = F.originLng + (e / (EARTH_R * F.cosLat)) * RAD2DEG;
-    return { lat, lng };
+    return {
+      lat: F.originLat + (n / EARTH_R) * RAD2DEG,
+      lng: F.originLng + (e / (EARTH_R * F.cosLat)) * RAD2DEG,
+    };
   }
 
-  function smoothAngle(prevDeg, nextDeg, alpha) {
-    if (prevDeg === null || !Number.isFinite(prevDeg)) return ((nextDeg % 360) + 360) % 360;
-    const diff = ((nextDeg - prevDeg + 540) % 360) - 180;
-    return ((prevDeg + diff * alpha) + 360) % 360;
+  function shortestAngleDiff(fromDeg, toDeg) {
+    return ((toDeg - fromDeg + 540) % 360) - 180;
   }
 
   function computeBearingDeg(from, to) {
@@ -122,10 +118,102 @@ window.Kameen = window.Kameen || {};
     return "شمال غرب";
   }
 
+  // Standard W3C 3D Tilt-Compensated Compass Heading (prevents 180° flips when phone is held upright!)
+  function computeTiltCompensatedHeading(alphaDeg, betaDeg, gammaDeg) {
+    const a = alphaDeg * DEG2RAD;
+    const b = betaDeg * DEG2RAD;
+    const g = gammaDeg * DEG2RAD;
+
+    const cA = Math.cos(a), sA = Math.sin(a);
+    const cB = Math.cos(b), sB = Math.sin(b);
+    const cG = Math.cos(g), sG = Math.sin(g);
+
+    // Project device screen top vector (or rear camera normal when upright) onto horizontal EN plane
+    const rA = -cA * sG - sA * sB * cG;
+    const rB = -sA * sG + cA * sB * cG;
+    let heading = Math.atan2(rA, rB) * RAD2DEG;
+    if (heading < 0) heading += 360;
+
+    // Account for screen rotation (0, 90, 180, 270)
+    const screenAngle = (window.screen?.orientation?.angle ?? window.orientation ?? 0) || 0;
+    return (heading + screenAngle + 360) % 360;
+  }
+
+  // Circular Median + Smooth Vector EMA + 3.0° Deadband Hysteresis (ZERO jitter!)
+  function feedHeadingSample(rawDeg, source, weight = 0.14) {
+    if (typeof rawDeg !== "number" || !Number.isFinite(rawDeg)) return;
+    const norm = ((rawDeg % 360) + 360) % 360;
+
+    let filtered = norm;
+    if (source === "compass") {
+      F.compassBuf.push(norm);
+      if (F.compassBuf.length > 7) F.compassBuf.shift();
+      // Reject magnetometer spikes via circular trimmed mean around first vector
+      if (F.compassBuf.length >= 3) {
+        const ref = F.compassReady ? F.headingDeg : F.compassBuf[0];
+        const diffs = F.compassBuf.map((ang) => shortestAngleDiff(ref, ang)).sort((x, y) => x - y);
+        const mid = diffs[Math.floor(diffs.length / 2)];
+        filtered = (ref + mid + 360) % 360;
+      }
+    }
+
+    const rad = filtered * DEG2RAD;
+    const s = Math.sin(rad);
+    const c = Math.cos(rad);
+
+    if (!F.compassReady) {
+      F.compassSin = s;
+      F.compassCos = c;
+      F.compassReady = true;
+    } else {
+      F.compassSin = F.compassSin * (1 - weight) + s * weight;
+      F.compassCos = F.compassCos * (1 - weight) + c * weight;
+      const mag = Math.hypot(F.compassSin, F.compassCos) || 1;
+      F.compassSin /= mag;
+      F.compassCos /= mag;
+    }
+
+    const smoothDeg = ((Math.atan2(F.compassSin, F.compassCos) * RAD2DEG) + 360) % 360;
+    F.headingDeg = smoothDeg;
+    F.headingSource = source;
+
+    // Deadband hysteresis: ignore < 3.0° micro-jitter so arrow stays rock-solid
+    const now = Date.now();
+    const diffFromDisp = F.displayedHeadingDeg === null ? 999 : Math.abs(shortestAngleDiff(F.displayedHeadingDeg, smoothDeg));
+    if (diffFromDisp >= 3.0 && now - F.lastHeadingPaintMs >= 80) {
+      F.displayedHeadingDeg = smoothDeg;
+      F.lastHeadingPaintMs = now;
+      if (typeof F.onHeadingUpdate === "function") {
+        F.onHeadingUpdate(smoothDeg, source);
+      }
+    }
+  }
+
+  function onDeviceOrientationEvent(e) {
+    let heading = null;
+    if (typeof e.webkitCompassHeading === "number" && Number.isFinite(e.webkitCompassHeading)) {
+      heading = e.webkitCompassHeading; // iOS CoreLocation magnetic heading (already tilt-compensated!)
+    } else if (typeof e.alpha === "number" && Number.isFinite(e.alpha)) {
+      const beta = (typeof e.beta === "number" && Number.isFinite(e.beta)) ? e.beta : 0;
+      const gamma = (typeof e.gamma === "number" && Number.isFinite(e.gamma)) ? e.gamma : 0;
+      // When phone is nearly flat (|beta| < 25 & |gamma| < 25), standard 360-alpha is cleanest;
+      // when tilted in hand (25..85 deg), use full 3D tilt compensation!
+      if (Math.abs(beta) < 22 && Math.abs(gamma) < 22) {
+        const screenAngle = (window.screen?.orientation?.angle ?? window.orientation ?? 0) || 0;
+        heading = (360 - e.alpha + screenAngle + 360) % 360;
+      } else {
+        heading = computeTiltCompensatedHeading(e.alpha, beta, gamma);
+      }
+    }
+    if (heading !== null) {
+      F.compassActive = true;
+      feedHeadingSample(heading, "compass", 0.14);
+    }
+  }
+
   function emitFusedCoords(source) {
     if (!F.hasFix || F.originLat === null) return;
     const out = enuToLl(F.E + F.biasE, F.N + F.biasN);
-    // Realistic fused 1-sigma accuracy estimate (floor 1.8m when anchored+ZUPT outdoors)
     const sigma = Math.sqrt(Math.max(0.5, (F.pE + F.pN) * 0.5));
     const clampedAcc = Number(Math.max(1.8, Math.min(sigma, F.rawAcc || 99)).toFixed(1));
     F.fusedAcc = clampedAcc;
@@ -149,39 +237,35 @@ window.Kameen = window.Kameen || {};
     const dt = F.lastPredictMs ? Math.min(5, Math.max(0.05, (nowMs - F.lastPredictMs) / 1000)) : 0.1;
     F.lastPredictMs = nowMs;
 
-    // ZUPT (Zero-Velocity Update): if phone accelerometer proves user is standing still, clamp velocity & freeze drift!
-    const recentlyStepped = (nowMs - F.lastStepMs) < 1600;
+    const recentlyStepped = (nowMs - F.lastStepMs) < 1500;
     const stationary = F.motionActive ? (F.isStationary && !recentlyStepped) : false;
 
     if (stationary) {
-      F.vE *= 0.25;
-      F.vN *= 0.25;
-      // Tiny process noise when stationary -> lets GNSS samples average down toward ~2.5-3m!
-      F.pE += 0.015 * dt;
-      F.pN += 0.015 * dt;
-      F.pVE = Math.max(0.05, F.pVE * 0.7);
-      F.pVN = Math.max(0.05, F.pVN * 0.7);
+      F.vE *= 0.2;
+      F.vN *= 0.2;
+      F.pE += 0.012 * dt;
+      F.pN += 0.012 * dt;
+      F.pVE = Math.max(0.04, F.pVE * 0.65);
+      F.pVN = Math.max(0.04, F.pVN * 0.65);
       return;
     }
 
-    // Moving state: propagate position with damped velocity if PDR isn't driving steps
     if (!recentlyStepped) {
       F.E += F.vE * dt;
       F.N += F.vN * dt;
-      F.vE *= Math.pow(0.65, dt);
-      F.vN *= Math.pow(0.65, dt);
+      F.vE *= Math.pow(0.62, dt);
+      F.vN *= Math.pow(0.62, dt);
     }
 
-    // Adaptive process noise: smaller when walking steadily, larger when moving fast
-    const qPos = recentlyStepped ? 0.55 : 1.8;
-    const qVel = 1.2;
+    const qPos = recentlyStepped ? 0.5 : 1.6;
+    const qVel = 1.1;
     F.pE += (F.pVE * dt * dt) + qPos * dt;
     F.pN += (F.pVN * dt * dt) + qPos * dt;
     F.pVE = Math.min(16, F.pVE + qVel * dt);
     F.pVN = Math.min(16, F.pVN + qVel * dt);
   }
 
-  // --- 2D ENU Kalman Update from GNSS Fix ---
+  // --- 2D ENU Kalman Update with Huber Robust Weighting ---
   function handleRawGpsFix(pos) {
     const now = Date.now();
     const rawLat = pos.coords.latitude;
@@ -194,17 +278,12 @@ window.Kameen = window.Kameen || {};
     F.rawLng = rawLng;
     F.rawAcc = Math.round(rawAcc);
 
-    // First fix initialization
     if (!F.hasFix) {
       setOrigin(rawLat, rawLng);
-      F.E = 0;
-      F.N = 0;
-      F.vE = 0;
-      F.vN = 0;
+      F.E = 0; F.N = 0; F.vE = 0; F.vN = 0;
       F.pE = rawAcc * rawAcc;
       F.pN = rawAcc * rawAcc;
-      F.pVE = 2;
-      F.pVN = 2;
+      F.pVE = 2; F.pVN = 2;
       F.hasFix = true;
       F.lastFixMs = now;
       F.lastPredictMs = now;
@@ -224,12 +303,9 @@ window.Kameen = window.Kameen || {};
     const impliedSpeed = jumpM / dtFix;
     const curSigma = Math.sqrt((F.pE + F.pN) * 0.5);
 
-    // Cold-Start Snap: if phone just upgraded from coarse cell/Wi-Fi (>25m) to clean GNSS (<=12m), snap cleanly!
-    if (rawAcc <= 12 && (F.lastRawAcc > 24 || curSigma > 20) && rawAcc < F.lastRawAcc * 0.6) {
-      F.E = z.e;
-      F.N = z.n;
-      F.vE = 0;
-      F.vN = 0;
+    // Cold-Start Snap: immediate snap when jumping from coarse indoor/cell (>22m) to clean outdoor GNSS (<=10m)
+    if (rawAcc <= 10 && (F.lastRawAcc > 22 || curSigma > 18) && rawAcc < F.lastRawAcc * 0.6) {
+      F.E = z.e; F.N = z.n; F.vE = 0; F.vN = 0;
       F.pE = rawAcc * rawAcc;
       F.pN = rawAcc * rawAcc;
       F.lastFixMs = now;
@@ -239,34 +315,34 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // Multipath / Cell-Tower Outlier Rejection Gate
-    const maxAllowedSpeed = 16; // ~58 km/h (generous for sprinting/bike, blocks tower teleports)
-    if (impliedSpeed > maxAllowedSpeed && rawAcc > 16 && curSigma < 18) {
+    // Outlier / Multipath Rejection Gate
+    if (impliedSpeed > 15 && rawAcc > 14 && curSigma < 18) {
       F.rejectedOutliers += 1;
       return;
     }
-    if (rawAcc > 55 && curSigma < 15 && dtFix < 15) {
+    if (rawAcc > 50 && curSigma < 15 && dtFix < 15) {
       F.rejectedOutliers += 1;
       return;
     }
-    // Mahalanobis innovation gate against sudden multipath bounce when stationary
-    if (F.motionActive && F.isStationary && (now - F.lastStepMs) > 2000 && jumpM > Math.max(18, rawAcc * 1.6) && curSigma < 12) {
+    if (F.motionActive && F.isStationary && (now - F.lastStepMs) > 2000 && jumpM > Math.max(15, rawAcc * 1.45) && curSigma < 12) {
       F.rejectedOutliers += 1;
       return;
     }
 
-    // Optimal Kalman Gain K = P / (P + R)
-    // Inflate measurement noise R slightly if stationary and reading is noisier than current lock
+    // Huber Robust Noise Inflation (stops 1 indoor reflection from yanking the pin!)
     let effAcc = rawAcc;
-    if (F.motionActive && F.isStationary && rawAcc > curSigma * 1.5) {
-      effAcc = rawAcc * 1.4;
+    if (F.motionActive && F.isStationary) {
+      const huberThreshold = Math.max(3.5, curSigma * 1.2);
+      if (jumpM > huberThreshold) {
+        effAcc = rawAcc * (jumpM / huberThreshold);
+      }
     }
+
     const R = effAcc * effAcc;
     const kE = F.pE / (F.pE + R);
     const kN = F.pN / (F.pN + R);
 
-    // When moving fast with sharp GNSS (<=10m), ensure zero-lag minimum responsiveness (gain floor 0.55)
-    const minGain = (!F.isStationary && rawAcc <= 10 && jumpM >= 2.2) ? 0.55 : 0;
+    const minGain = (!F.isStationary && rawAcc <= 9 && jumpM >= 2.0) ? 0.58 : 0;
     const gE = Math.max(kE, minGain);
     const gN = Math.max(kN, minGain);
 
@@ -274,11 +350,9 @@ window.Kameen = window.Kameen || {};
     F.E += gE * innovE;
     F.N += gN * innovN;
 
-    // Update covariance with safe physical floor (~1.8m^2 => ~1.35m floor per axis -> ~1.9m 2D sigma)
     F.pE = Math.max(3.2, (1 - kE) * F.pE);
     F.pN = Math.max(3.2, (1 - kN) * F.pN);
 
-    // Velocity estimate update
     if (!F.isStationary && dtFix <= 6) {
       const mVE = (F.E - prevE) / dtFix;
       const mVN = (F.N - prevN) / dtFix;
@@ -286,21 +360,17 @@ window.Kameen = window.Kameen || {};
       F.vN = F.vN * 0.5 + mVN * 0.5;
     }
 
-    // Heading fusion: blend GPS course-over-ground when moving briskly (>1.3 m/s) to correct magnetic interference
-    if (gpsHeading !== null && gpsSpeed !== null && gpsSpeed > 1.3) {
-      applyHeading(gpsHeading, F.compassActive ? "fused" : "gps", F.compassActive ? 0.18 : 0.45);
-    } else if (!F.compassActive && jumpM >= 1.8) {
-      const prevLL = enuToLl(prevE, prevN);
-      const curLL = enuToLl(F.E, F.N);
-      applyHeading(computeBearingDeg(prevLL, curLL), "gps", 0.42);
+    // Walking COG Heading Fusion (stabilizes compass near metal cars/buildings!)
+    if (gpsHeading !== null && gpsSpeed !== null && gpsSpeed > 1.1) {
+      feedHeadingSample(gpsHeading, F.compassActive ? "fused" : "gps", F.compassActive ? 0.25 : 0.45);
+    } else if (!F.compassActive && jumpM >= 2.0) {
+      feedHeadingSample(computeBearingDeg(enuToLl(prevE, prevN), enuToLl(F.E, F.N)), "gps", 0.40);
     }
 
-    // Re-center tangent plane origin if user walked > 4km from origin
     if (Math.hypot(F.E, F.N) > 4000) {
       const curLL = enuToLl(F.E, F.N);
       setOrigin(curLL.lat, curLL.lng);
-      F.E = 0;
-      F.N = 0;
+      F.E = 0; F.N = 0;
     }
 
     F.lastFixMs = now;
@@ -309,47 +379,31 @@ window.Kameen = window.Kameen || {};
     emitFusedCoords("gps_kalman");
   }
 
-  // --- PDR Step Impulse Injection ---
   function injectPdrStep(nowMs, peakToValley) {
     F.stepsTotal += 1;
     F.lastStepMs = nowMs;
     F.isStationary = false;
     F.lastMovementMs = nowMs;
 
-    // Weinberg adaptive stride length (~0.60m slow walk -> ~0.88m fast walk/jog)
-    const stride = Math.max(0.58, Math.min(0.90, 0.48 + 0.14 * Math.pow(Math.max(0.5, peakToValley), 0.25)));
-    F.cadenceStrideM = stride;
-
+    const stride = Math.max(0.58, Math.min(0.88, 0.48 + 0.14 * Math.pow(Math.max(0.5, peakToValley), 0.25)));
     if (!F.hasFix || F.headingDeg === null) return;
 
     kalmanPredict(nowMs);
     const rad = F.headingDeg * DEG2RAD;
-    const dE = stride * Math.sin(rad);
-    const dN = stride * Math.cos(rad);
-
-    F.E += dE;
-    F.N += dN;
-    // Slight variance growth per dead-reckoned step (~0.35m^2) so next GNSS fix gently snaps any compass drift
+    F.E += stride * Math.sin(rad);
+    F.N += stride * Math.cos(rad);
     F.pE = Math.min(400, F.pE + 0.35);
     F.pN = Math.min(400, F.pN + 0.35);
-
     emitFusedCoords("pdr_step");
   }
 
-  // --- Accelerometer Motion Listener (ZUPT + PDR Step Detector) ---
   function onDeviceMotionEvent(e) {
     const now = Date.now();
     let linMag = null;
 
     if (e.acceleration && typeof e.acceleration.x === "number" && Number.isFinite(e.acceleration.x) &&
         (Math.abs(e.acceleration.x) + Math.abs(e.acceleration.y) + Math.abs(e.acceleration.z)) > 0.001) {
-      // Hardware-separated linear acceleration (best!)
-      const ax = e.acceleration.x || 0;
-      const ay = e.acceleration.y || 0;
-      const az = e.acceleration.z || 0;
-      // Signed vertical-dominant magnitude projected along gravity if available, else norm
-      linMag = Math.hypot(ax, ay, az);
-      // Center around 0 using rolling mean below
+      linMag = Math.hypot(e.acceleration.x || 0, e.acceleration.y || 0, e.acceleration.z || 0);
     } else if (e.accelerationIncludingGravity && typeof e.accelerationIncludingGravity.x === "number") {
       const gx = e.accelerationIncludingGravity.x || 0;
       const gy = e.accelerationIncludingGravity.y || 0;
@@ -363,22 +417,17 @@ window.Kameen = window.Kameen || {};
         F.gravity.y = a * F.gravity.y + (1 - a) * gy;
         F.gravity.z = a * F.gravity.z + (1 - a) * gz;
       }
-      const lx = gx - F.gravity.x;
-      const ly = gy - F.gravity.y;
-      const lz = gz - F.gravity.z;
-      // Project onto gravity axis for clean vertical bounce of human walking!
+      const lx = gx - F.gravity.x, ly = gy - F.gravity.y, lz = gz - F.gravity.z;
       const gNorm = Math.hypot(F.gravity.x, F.gravity.y, F.gravity.z) || 9.81;
-      const vert = (lx * F.gravity.x + ly * F.gravity.y + lz * F.gravity.z) / gNorm;
-      linMag = vert;
+      linMag = (lx * F.gravity.x + ly * F.gravity.y + lz * F.gravity.z) / gNorm;
     }
 
     if (linMag === null || !Number.isFinite(linMag)) return;
     F.motionActive = true;
 
     F.magWindow.push(linMag);
-    if (F.magWindow.length > 24) F.magWindow.shift();
+    if (F.magWindow.length > 22) F.magWindow.shift();
 
-    // Compute rolling mean & variance for ZUPT stationary detection
     let sum = 0;
     for (let i = 0; i < F.magWindow.length; i++) sum += F.magWindow[i];
     const mean = sum / F.magWindow.length;
@@ -388,10 +437,8 @@ window.Kameen = window.Kameen || {};
       varSum += d * d;
     }
     F.accVariance = varSum / F.magWindow.length;
-
     const centered = linMag - mean;
 
-    // Stationary threshold (ZUPT)
     if (F.accVariance < 0.16 && (now - F.lastStepMs) > 1500) {
       F.isStationary = true;
     } else if (F.accVariance > 0.35) {
@@ -399,7 +446,6 @@ window.Kameen = window.Kameen || {};
       F.lastMovementMs = now;
     }
 
-    // Peak-Valley Step Detector (Refractory 320ms prevents double-counting)
     const dtStep = now - F.lastStepMs;
     if (F.stepPhase === "idle") {
       if (centered > 1.25 && dtStep > 320) {
@@ -419,35 +465,6 @@ window.Kameen = window.Kameen || {};
       } else if (dtStep > 1400) {
         F.stepPhase = "idle";
       }
-    }
-  }
-
-  // --- Compass Orientation Listener ---
-  function applyHeading(rawDeg, source, alphaOverride) {
-    if (typeof rawDeg !== "number" || !Number.isFinite(rawDeg)) return;
-    const alpha = alphaOverride ?? (source === "compass" ? 0.22 : 0.42);
-    F.headingDeg = smoothAngle(F.headingDeg, rawDeg, alpha);
-    F.headingSource = source;
-    const now = Date.now();
-    if (now - F.lastHeadingPaintMs >= 60) {
-      F.lastHeadingPaintMs = now;
-      if (typeof F.onHeadingUpdate === "function") {
-        F.onHeadingUpdate(F.headingDeg, source);
-      }
-    }
-  }
-
-  function onDeviceOrientationEvent(e) {
-    let heading = null;
-    if (typeof e.webkitCompassHeading === "number" && Number.isFinite(e.webkitCompassHeading)) {
-      heading = e.webkitCompassHeading;
-    } else if (typeof e.alpha === "number" && Number.isFinite(e.alpha)) {
-      const screenAngle = (window.screen?.orientation?.angle ?? window.orientation ?? 0) || 0;
-      heading = (360 - e.alpha + screenAngle) % 360;
-    }
-    if (heading !== null) {
-      F.compassActive = true;
-      applyHeading(heading, "compass");
     }
   }
 
@@ -492,60 +509,20 @@ window.Kameen = window.Kameen || {};
     return { compassOk, motionOk };
   }
 
-  // --- Manual Precision Anchor Calibration (Site Bias Cancellation) ---
-  function setAnchorCalibration(trueLat, trueLng) {
-    if (!F.hasFix || F.originLat === null) {
-      return { ok: false, error: "استنى الـ GPS يلقط إشارة أولاً قبل المعايرة" };
-    }
-    const targetEnu = llToEnu(trueLat, trueLng);
-    const reqBiasE = targetEnu.e - F.E;
-    const reqBiasN = targetEnu.n - F.N;
-    const dist = Math.hypot(reqBiasE, reqBiasN);
-
-    if (dist > MAX_ANCHOR_BIAS_M) {
-      return {
-        ok: false,
-        error: `المكان ده بعيد أوي (${Math.round(dist)}م) — الحد الأقصى لمعايرة الترحيل ${MAX_ANCHOR_BIAS_M}م`,
-      };
-    }
-
-    F.biasE = reqBiasE;
-    F.biasN = reqBiasN;
-    F.biasActive = true;
-    // Tightening local confidence after physical anchor lock
-    F.pE = Math.min(F.pE, 6.5);
-    F.pN = Math.min(F.pN, 6.5);
-    emitFusedCoords("anchor_lock");
-    return { ok: true, correctedMeters: Number(dist.toFixed(1)) };
-  }
-
-  function clearAnchorCalibration() {
-    F.biasE = 0;
-    F.biasN = 0;
-    F.biasActive = false;
-    emitFusedCoords("anchor_clear");
-  }
-
-  let autoUnlockInstalled = false;
-  let lastBoostMs = 0;
-
   function grabHighAccuracyOnce() {
     if (!("geolocation" in navigator)) return;
     try {
       navigator.geolocation.getCurrentPosition(handleRawGpsFix, () => {}, {
-        enableHighAccuracy: true,
-        maximumAge: 0,
-        timeout: 10000,
+        enableHighAccuracy: true, maximumAge: 0, timeout: 10000,
       });
     } catch {}
   }
 
-  // Non-destructive HyperLock Boost: forces immediate GNSS satellite refinement + binds compass/PDR automatically
   function boostLock(fromUserGesture = false) {
     const now = Date.now();
     void enableSensors(fromUserGesture);
-    if (now - lastBoostMs < 3500) return;
-    lastBoostMs = now;
+    if (now - F.lastBoostMs < 3500) return;
+    F.lastBoostMs = now;
     grabHighAccuracyOnce();
     F.warmupTimers.forEach((id) => clearTimeout(id));
     F.warmupTimers = [
@@ -555,26 +532,24 @@ window.Kameen = window.Kameen || {};
     ];
   }
 
-  // Silent First-Touch Auto-Unlock: activates iOS/Android Compass + PDR Step Sensor + Audio on the user's VERY FIRST tap!
   function installAutoUnlock() {
-    if (autoUnlockInstalled || typeof window === "undefined") return;
-    autoUnlockInstalled = true;
-    const onFirstGesture = () => {
+    if (F.autoUnlockInstalled || typeof window === "undefined") return;
+    F.autoUnlockInstalled = true;
+    const onGesture = () => {
       void enableSensors(true);
       boostLock(true);
       if (K.SFX && typeof K.SFX.warmup === "function") K.SFX.warmup();
       if (F.compassBound && F.motionBound) {
-        window.removeEventListener("pointerdown", onFirstGesture, true);
-        window.removeEventListener("touchstart", onFirstGesture, true);
-        window.removeEventListener("click", onFirstGesture, true);
+        window.removeEventListener("pointerdown", onGesture, true);
+        window.removeEventListener("touchstart", onGesture, true);
+        window.removeEventListener("click", onGesture, true);
       }
     };
-    window.addEventListener("pointerdown", onFirstGesture, { capture: true, passive: true });
-    window.addEventListener("touchstart", onFirstGesture, { capture: true, passive: true });
-    window.addEventListener("click", onFirstGesture, { capture: true, passive: true });
+    window.addEventListener("pointerdown", onGesture, { capture: true, passive: true });
+    window.addEventListener("touchstart", onGesture, { capture: true, passive: true });
+    window.addEventListener("click", onGesture, { capture: true, passive: true });
   }
 
-  // --- Start & Automatic High-Accuracy HyperLock Burst ---
   function start(callbacks = {}) {
     if (callbacks.onLocationUpdate) F.onLocationUpdate = callbacks.onLocationUpdate;
     if (callbacks.onHeadingUpdate) F.onHeadingUpdate = callbacks.onHeadingUpdate;
@@ -589,27 +564,19 @@ window.Kameen = window.Kameen || {};
     }
     if (F.watchId !== null) return;
 
-    const handleErr = (err) => {
-      if (F.onError) F.onError(err);
-    };
-
-    // High-accuracy auto-warmup burst: immediate grab + 1.2s + 3s + 5.5s kick to lock GNSS fast
-    lastBoostMs = 0;
+    F.lastBoostMs = 0;
     boostLock(false);
 
     F.watchId = navigator.geolocation.watchPosition(
       handleRawGpsFix,
-      handleErr,
+      (err) => { if (F.onError) F.onError(err); },
       { enableHighAccuracy: true, maximumAge: 0, timeout: 12000 }
     );
 
-    // Watchdog prevents Android Chrome from sleeping watchPosition while screen is active
     if (F.watchdogTimer) clearInterval(F.watchdogTimer);
     F.watchdogTimer = setInterval(() => {
       if (document.visibilityState !== "visible") return;
-      if (Date.now() - (F.lastFixMs || 0) > 6000) {
-        grabHighAccuracyOnce();
-      }
+      if (Date.now() - (F.lastFixMs || 0) > 6000) grabHighAccuracyOnce();
     }, 5000);
   }
 
@@ -618,34 +585,49 @@ window.Kameen = window.Kameen || {};
       navigator.geolocation.clearWatch(F.watchId);
       F.watchId = null;
     }
-    F.hasFix = false;
-    F.originLat = null;
-    F.originLng = null;
-    F.pE = 2500;
-    F.pN = 2500;
-    F.lastRawAcc = Infinity;
-    F.rejectedOutliers = 0;
-    F.acceptedFixes = 0;
-    lastBoostMs = 0;
+    F.hasFix = false; F.originLat = null; F.originLng = null;
+    F.pE = 2500; F.pN = 2500; F.lastRawAcc = Infinity;
+    F.rejectedOutliers = 0; F.acceptedFixes = 0; F.lastBoostMs = 0;
     void enableSensors(fromUserGesture);
     start();
   }
 
+  function setAnchorCalibration(trueLat, trueLng) {
+    if (!F.hasFix || F.originLat === null) {
+      return { ok: false, error: "استنى الـ GPS يلقط إشارة أولاً" };
+    }
+    const t = llToEnu(trueLat, trueLng);
+    const bE = t.e - F.E, bN = t.n - F.N;
+    const dist = Math.hypot(bE, bN);
+    if (dist > MAX_ANCHOR_BIAS_M) {
+      return { ok: false, error: `المسافة كبيرة (${Math.round(dist)}م — الحد الأقصى ${MAX_ANCHOR_BIAS_M}م)` };
+    }
+    F.biasE = bE; F.biasN = bN; F.biasActive = true;
+    F.pE = Math.min(F.pE, 6.0); F.pN = Math.min(F.pN, 6.0);
+    emitFusedCoords("anchor_lock");
+    return { ok: true, correctedMeters: Number(dist.toFixed(1)) };
+  }
+
+  function clearAnchorCalibration() {
+    F.biasE = 0; F.biasN = 0; F.biasActive = false;
+    emitFusedCoords("anchor_clear");
+  }
+
   function setManualHeading(deg, source = "sim") {
-    applyHeading(deg, source, 0.5);
+    feedHeadingSample(deg, source, 0.55);
   }
 
   function getTelemetry() {
     const speedMps = F.isStationary ? 0 : Math.hypot(F.vE, F.vN);
     const biasMeters = F.biasActive ? Number(Math.hypot(F.biasE, F.biasN).toFixed(1)) : 0;
-    let motionMode = "تتبع GPS 📡";
+    let motionMode = "GPS تلقائي";
     if (F.motionActive) {
-      if ((Date.now() - F.lastStepMs) < 2200) motionMode = "ماشي بالخطوات (PDR 👣)";
-      else if (F.isStationary) motionMode = "ثابت ومُقفول (ZUPT 🔒)";
-      else motionMode = "حركة نشطة 🏃";
+      if ((Date.now() - F.lastStepMs) < 2200) motionMode = "خطوات PDR";
+      else if (F.isStationary) motionMode = "ثابت ZUPT";
+      else motionMode = "حركة نشطة";
     }
-    let quality = "waiting";
     const acc = F.fusedAcc ?? F.rawAcc;
+    let quality = "waiting";
     if (acc !== null) {
       if (acc <= 4.5) quality = "ultra";
       else if (acc <= 10) quality = "good";
@@ -653,38 +635,20 @@ window.Kameen = window.Kameen || {};
       else quality = "indoor";
     }
     return {
-      hasFix: F.hasFix,
-      rawAcc: F.rawAcc,
-      fusedAcc: F.fusedAcc,
-      quality,
-      motionMode,
-      isStationary: F.isStationary,
-      motionActive: F.motionActive,
-      compassActive: F.compassActive,
-      headingDeg: F.headingDeg,
-      headingArabic: headingToArabic(F.headingDeg),
-      stepsTotal: F.stepsTotal,
-      speedKmh: Number((speedMps * 3.6).toFixed(1)),
-      acceptedFixes: F.acceptedFixes,
-      rejectedOutliers: F.rejectedOutliers,
-      biasActive: F.biasActive,
-      biasMeters,
+      hasFix: F.hasFix, rawAcc: F.rawAcc, fusedAcc: F.fusedAcc, quality,
+      motionMode, isStationary: F.isStationary,
+      motionActive: F.motionActive, compassActive: F.compassActive,
+      headingDeg: F.headingDeg, headingArabic: headingToArabic(F.headingDeg),
+      stepsTotal: F.stepsTotal, speedKmh: Number((speedMps * 3.6).toFixed(1)),
+      acceptedFixes: F.acceptedFixes, rejectedOutliers: F.rejectedOutliers,
+      biasActive: F.biasActive, biasMeters,
     };
   }
 
   K.Location = {
-    start,
-    boostLock,
-    installAutoUnlock,
-    recalibrate,
-    enableSensors,
-    setAnchorCalibration,
-    clearAnchorCalibration,
-    setManualHeading,
-    headingToArabic,
-    computeBearingDeg,
-    getTelemetry,
-    // Exposed for unit testing & diagnostics
+    start, boostLock, installAutoUnlock, recalibrate, enableSensors,
+    setAnchorCalibration, clearAnchorCalibration, setManualHeading,
+    headingToArabic, computeBearingDeg, getTelemetry,
     _processTestFix: handleRawGpsFix,
     _injectTestStep: injectPdrStep,
   };

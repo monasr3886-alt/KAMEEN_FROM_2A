@@ -15,11 +15,11 @@ window.Kameen = window.Kameen || {};
 
   function updateConnectionBadges() {
     const mapTxt = {
-      connected: "سوبابيس لايف 🟢",
-      connecting: "بيربط بسوبابيس... 🟡",
-      ready: "سوبابيس جاهز 🟢",
-      error: "وضع محلي 🟠",
-      offline: "وضع محلي 🟠",
+      connected: "متصل لايف",
+      connecting: "جاري الربط...",
+      ready: "جاهز",
+      error: "وضع محلي",
+      offline: "وضع محلي",
     };
     const txt = mapTxt[K.state.sbStatus] || "جاهز";
     document.querySelectorAll(".sb-status-badge").forEach((el) => {
@@ -87,6 +87,16 @@ window.Kameen = window.Kameen || {};
       st.lobby.players = st.lobby.players.filter((p) => p.id !== payload.playerId);
       broadcastLobbyState();
       if (st.route === "lobby") K.UI.renderPage();
+    });
+
+    ch.on("broadcast", { event: "SPECTATOR_REQ" }, ({ payload }) => {
+      if (!st.lobby || st.lobby.hostId !== st.user.id || !payload?.playerId) return;
+      const tgt = st.lobby.players.find((p) => p.id === payload.playerId);
+      if (tgt) {
+        tgt.isSpectator = Boolean(payload.isSpectator);
+        broadcastLobbyState();
+        if (st.route === "lobby") K.UI.renderPage();
+      }
     });
 
     ch.on("broadcast", { event: "LOBBY_SYNC" }, ({ payload }) => {

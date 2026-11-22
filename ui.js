@@ -6,7 +6,6 @@ window.Kameen = window.Kameen || {};
   const esc = K.escHtml;
   const fmt = K.fmtClock;
 
-  // Zero-flicker DOM diff helper: prevents rebuilding HUD DOM & dropping button taps when HTML is unchanged!
   function setHtmlIfChanged(el, html) {
     if (!el) return;
     if (el.__lastHtml === html) return;
@@ -14,42 +13,61 @@ window.Kameen = window.Kameen || {};
     el.innerHTML = html;
   }
 
+  // Crisp 2px stroke vector icons (Zero emoji spam!)
   const ICONS = {
+    back: `<svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>`,
+    sliders: `<svg viewBox="0 0 24 24"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18" r="2" fill="currentColor"/></svg>`,
+    menu: `<svg viewBox="0 0 24 24"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>`,
+    share: `<svg viewBox="0 0 24 24"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`,
+    copy: `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
     play: `<svg viewBox="0 0 24 24"><polygon points="6 4 20 12 6 20 6 4"/></svg>`,
-    sim: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>`,
-    book: `<svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>`,
+    book: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>`,
     user: `<svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`,
-    gear: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
-    back: `<svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>`,
+    eye: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    target: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>`,
+    compass: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>`,
+    radar: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><line x1="12" y1="12" x2="18.5" y2="5.5"/></svg>`,
+    shield: `<svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>`,
+    bolt: `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
+    cpu: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>`,
+    flag: `<svg viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
+    close: `<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   };
 
   function avatarBadge(name) {
     const clean = String(name || "X").trim();
     const letter = clean.charAt(0) || "X";
-    const bg = K.getAvatarColor(clean);
-    return `<div class="avatar-dot" style="background:${bg};">${esc(letter)}</div>`;
+    return `<div class="avatar-dot" style="background:${K.getAvatarColor(clean)};">${esc(letter)}</div>`;
   }
 
-  function formatGpsStatusText() {
+  function formatRevealLabel(sec) {
+    const s = Number(sec || 120);
+    if (s < 60) return `${s} ثانية`;
+    const m = Math.round(s / 60);
+    if (m === 1) return "دقيقة";
+    if (m === 2) return "دقيقتين";
+    return `${m} دقائق`;
+  }
+
+  function formatGpsPillHtml() {
     const st = K.state;
-    if (!st.gps.accuracy) return st.gps.error || "بيلقط أقمار GPS... 🟡";
+    if (!st.gps.accuracy) {
+      return `<span class="pill pill-amber tnum">جاري تحديد الموقع</span>`;
+    }
     const a = Number(st.gps.accuracy);
     const lbl = a < 10 ? a.toFixed(1) : Math.round(a);
-    if (a <= 4.5) return `HyperLock فائق (±${lbl}م) 🟢`;
-    if (a <= 12) return `GPS ممتاز (±${lbl}م) 🟢`;
-    if (a <= 25) return `GPS متوسط (±${lbl}م) 🟡`;
-    return `إشارة ضعيفة (±${lbl}م — اخرج للشارع) 🔴`;
+    const cls = a <= 5 ? "pill-green" : (a <= 14 ? "pill-cyan" : "pill-amber");
+    return `<span class="pill ${cls} tnum">GPS ±${lbl}م</span>`;
   }
 
   function updateGpsStatusDOM() {
-    const st = K.state;
-    const gpsTxt = formatGpsStatusText();
-    const lEl = document.getElementById("landing-gps-text");
-    if (lEl) lEl.textContent = gpsTxt;
-    const pSub = document.getElementById("perm-gps-sub");
-    if (pSub) pSub.textContent = gpsTxt;
-    const pBtn = document.getElementById("perm-gps-btn");
-    if (pBtn) pBtn.textContent = st.gps.status === "granted" ? "معايرة 📡" : "تفعيل GPS";
+    const el = document.getElementById("header-gps-pill");
+    if (el) el.innerHTML = formatGpsPillHtml();
+    const sub = document.getElementById("create-gps-sub");
+    if (sub && K.state.gps.accuracy) {
+      const a = Number(K.state.gps.accuracy);
+      sub.textContent = `دقة الموقع ±${a < 10 ? a.toFixed(1) : Math.round(a)}م • اضغط لتحريك الزون`;
+    }
   }
 
   function renderAppHeader() {
@@ -57,37 +75,56 @@ window.Kameen = window.Kameen || {};
     const hdr = document.getElementById("app-header");
     if (!hdr) return;
 
+    if (st.route === "permissions_gate") {
+      hdr.classList.add("hidden");
+      return;
+    }
+    hdr.classList.remove("hidden");
+
     if (st.route === "landing" || st.route === "howto" || st.route === "profile") {
       hdr.innerHTML = `
         <div style="display:flex;align-items:center;gap:10px;min-width:0;">
           <img src="${K.CONFIG.LOGO_PATH}" class="brand-logo-sm" alt="كمين" />
           <div style="min-width:0;">
-            <div style="font-size:15px;font-weight:900;line-height:1.15;">كمين — KAMEEN</div>
-            <div id="landing-gps-text" style="font-size:10.5px;font-weight:700;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(formatGpsStatusText())}</div>
+            <div style="display:flex;align-items:center;gap:7px;">
+              <span style="font-size:16px;font-weight:900;letter-spacing:0.3px;">كمين</span>
+              <span class="ver-pill">${K.CONFIG.VERSION}</span>
+            </div>
+            <div id="header-gps-pill" style="margin-top:2px;">${formatGpsPillHtml()}</div>
           </div>
         </div>
-        <button class="icon-btn" aria-label="الإعدادات" onclick="onOpenModal('permissions')">${ICONS.gear}</button>
+        <button class="icon-btn" aria-label="الإعدادات" onclick="onOpenModal('game_settings')">${ICONS.menu}</button>
       `;
     } else if (st.route === "lobby" && st.lobby) {
       hdr.innerHTML = `
-        <button class="icon-btn" onclick="onLeaveLobby()">${ICONS.back}</button>
-        <div style="font-weight:900;font-size:15px;">${esc(st.lobby.title)}</div>
-        <span class="pill sb-status-badge" style="background:var(--green-soft);color:#6EE7B7;">متصل 🟢</span>
+        <button class="icon-btn" aria-label="رجوع" onclick="onLeaveLobby()">${ICONS.back}</button>
+        <div style="text-align:center;min-width:0;">
+          <div class="eyebrow">ZONE</div>
+          <div style="display:flex;align-items:center;justify-content:center;gap:6px;">
+            <span style="font-size:19px;font-weight:900;letter-spacing:2px;" class="tnum">${esc(st.lobby.code)}</span>
+            <button style="border:none;background:none;color:var(--muted);cursor:pointer;padding:2px;display:inline-flex;" onclick="onCopyInviteCode()" title="نسخ الكود">${ICONS.copy}</button>
+            <span class="ver-pill">${K.CONFIG.VERSION}</span>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button class="icon-btn accent-icon" aria-label="مشاركة" onclick="onShareWhatsApp()">${ICONS.share}</button>
+          <button class="icon-btn" aria-label="إعدادات اللعبة" onclick="onOpenModal('game_settings')">${ICONS.sliders}</button>
+        </div>
       `;
     } else if (st.route === "meeting" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const m = vis.activeMeeting;
       const rem = m ? Math.max(0, Math.ceil((m.endsAtMs - vis.nowMs) / 1000)) : 0;
       hdr.innerHTML = `
-        <span class="pill" style="background:var(--crimson-soft);color:#FF6B86;">🚨 اجتماع طارئ</span>
-        <div style="font-weight:900;font-size:13px;">مين الغدّار؟</div>
-        <span id="meeting-timer-badge" class="pill" style="background:var(--crimson);color:#fff;font-size:13px;">${rem}ث</span>
+        <span class="pill pill-red">اجتماع طارئ</span>
+        <div style="font-weight:900;font-size:14px;">التصويت على الغدّار</div>
+        <span id="meeting-timer-badge" class="pill pill-red tnum" style="font-size:13px;">${rem}ث</span>
       `;
     } else if (st.route === "result") {
       hdr.innerHTML = `
         <button class="icon-btn" onclick="exitGameToLanding()">${ICONS.back}</button>
         <div style="font-weight:900;font-size:15px;">نتيجة الكمين</div>
-        <div style="width:38px;"></div>
+        <div style="width:40px;"></div>
       `;
     }
   }
@@ -103,9 +140,6 @@ window.Kameen = window.Kameen || {};
     bar.innerHTML = `
       <button class="tab-item ${st.route === "landing" ? "active" : ""}" onclick="onNav('landing')">
         ${ICONS.play}<span>العب</span>
-      </button>
-      <button class="tab-item" onclick="onStartSimulation()">
-        ${ICONS.sim}<span>محاكاة</span>
       </button>
       <button class="tab-item ${st.route === "howto" ? "active" : ""}" onclick="onNav('howto')">
         ${ICONS.book}<span>القوانين</span>
@@ -130,7 +164,7 @@ window.Kameen = window.Kameen || {};
       <button class="dpad-btn" onclick="onSimNudge(12, 0)">▲</button>
       <div></div>
       <button class="dpad-btn" onclick="onSimNudge(0, 12)">▶</button>
-      <button class="dpad-btn" style="font-size:11px;" onclick="Kameen.Map.recenter()">📍</button>
+      <button class="dpad-btn" onclick="Kameen.Map.recenter()">◎</button>
       <button class="dpad-btn" onclick="onSimNudge(0, -12)">◀</button>
       <div></div>
       <button class="dpad-btn" onclick="onSimNudge(-12, 0)">▼</button>
@@ -138,8 +172,96 @@ window.Kameen = window.Kameen || {};
     `;
   }
 
+  // Pick ONLY the #1 highest-priority alert line so HUD NEVER overflows or overlaps!
+  function buildSinglePriorityTicker(vis, st, C, activeMission, activeDist, brokerActive, brokerRem, drop, dropDist, dropCanClaim) {
+    if (st.gps.anchorCalibrating) {
+      return `
+        <div class="hud-ticker amber">
+          <span>اضغط على مكانك الحقيقي على الرادار لتصحيح الترحيل</span>
+          <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
+        </div>
+      `;
+    }
+    if (vis.outsideZoneRemainingMs !== null) {
+      return `
+        <div class="hud-ticker danger">
+          <span>أنت خارج الزون — ادخل خلال <b class="tnum">${Math.ceil(vis.outsideZoneRemainingMs / 1000)}ث</b></span>
+        </div>
+      `;
+    }
+    if (vis.dangerSense) {
+      return `
+        <div class="hud-ticker ${vis.dangerSense.level === "critical" ? "danger" : ""}">
+          <span>${esc(vis.dangerSense.label)}</span>
+        </div>
+      `;
+    }
+    if (vis.phase === "SPREAD") {
+      return `
+        <div class="hud-ticker amber">
+          <span>مرحلة التشتيت — تفرّقوا في المنطقة قبل بدء اللعب</span>
+          <span class="tnum">${fmt(vis.spreadRemainingMs)}</span>
+        </div>
+      `;
+    }
+    if (brokerActive) {
+      return `
+        <div class="hud-ticker amber" style="cursor:pointer;" onclick="onOpenModal('broker')">
+          <span>صفقة سمسار سرية متاحة (${brokerRem}ث)</span>
+          <span class="pill pill-amber">فتح</span>
+        </div>
+      `;
+    }
+    if (drop) {
+      return `
+        <div class="hud-ticker amber">
+          <span>إمداد ${esc(drop.place)} (${dropDist}م)</span>
+          ${dropCanClaim
+            ? `<button class="btn btn-warning btn-xs" onclick="onClaimAirdrop()">التقط +45ن</button>`
+            : `<span class="tnum" style="color:var(--muted);">${Math.ceil((drop.expiresAtMs - vis.nowMs) / 1000)}ث</span>`}
+        </div>
+      `;
+    }
+    if (vis.aiJammed) {
+      return `
+        <div class="hud-ticker">
+          <span>تشويش إلكتروني نشط — الرادار والمحلل متوقفان</span>
+          <span class="tnum">${vis.aiJammedRemainingSec}ث</span>
+        </div>
+      `;
+    }
+    if (vis.postSpreadGraceSec > 0) {
+      return `
+        <div class="hud-ticker">
+          <span>فترة الأمان الأولية</span>
+          <span class="tnum">${vis.postSpreadGraceSec}ث</span>
+        </div>
+      `;
+    }
+    if (activeMission) {
+      const canProof = activeDist <= C.MISSION_RANGE_M + 5;
+      return `
+        <div class="hud-ticker">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(activeMission.poi.name)} • ${activeDist}م</span>
+          ${canProof
+            ? `<button class="btn btn-success btn-xs" onclick="openCameraForMission('${activeMission.id}')">توثيق</button>`
+            : `<span style="color:var(--muted);font-size:11px;">${K.Geo.getArabicDirection(vis.self.coords, { lat: activeMission.poi.lat, lng: activeMission.poi.lng })}</span>`}
+        </div>
+      `;
+    }
+    if (st.lastIntel) {
+      return `
+        <div class="hud-ticker" style="cursor:pointer;" onclick="onOpenModal('intel_log')">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(st.lastIntel)}</span>
+          <button style="border:none;background:none;color:var(--muted);cursor:pointer;font-weight:900;padding:0 4px;" onclick="event.stopPropagation();Kameen.state.lastIntel=null;Kameen.UI.updateHudOnly()">×</button>
+        </div>
+      `;
+    }
+    return "";
+  }
+
   // =========================================================================
-  // ROLE-SEPARATED MAP HUD (Create / Imposter / Investigator / Ghost)
+  // ZERO-OVERLAP MAP / RADAR HUD
   // =========================================================================
   function updateHudOnly() {
     const st = K.state;
@@ -147,9 +269,6 @@ window.Kameen = window.Kameen || {};
     const sideEl = document.getElementById("map-side-fabs");
     const botEl = document.getElementById("map-hud-bottom");
     if (!topEl || !sideEl || !botEl) return;
-
-    const styleIco = st.mapStyle === "radar_offline" ? "🛣️" : "📡";
-    const styleTitle = st.mapStyle === "radar_offline" ? "إظهار شوارع الرادار" : "رادار صافي بدون شوارع";
 
     renderSimDpad();
 
@@ -159,63 +278,45 @@ window.Kameen = window.Kameen || {};
       K.setDangerVignette(false);
       if (K.isUserTyping() && document.activeElement.id === "create-title-inp") return;
       const f = st.createForm;
+      const accTxt = st.gps.accuracy
+        ? `دقة الموقع ±${st.gps.accuracy < 10 ? Number(st.gps.accuracy).toFixed(1) : Math.round(st.gps.accuracy)}م • اضغط لتحريك الزون`
+        : "جاري تحديد موقعك الحقيقي...";
+
       setHtmlIfChanged(topEl, `
-        <div class="dynamic-capsule">
-          <button class="icon-btn" style="width:34px;height:34px;" onclick="onNav('landing')">${ICONS.back}</button>
-          <div style="text-align:center;">
-            <div style="font-size:13px;font-weight:900;">تحديد منطقة الكمين</div>
-            <div style="font-size:10px;color:${st.gps.hasRealFix ? "var(--green)" : "var(--gold)"};font-weight:700;">${st.gps.hasRealFix ? `GPS متصل (±${st.gps.accuracy}م) • اضغط لتحريك الزون` : "📡 جاري لقط موقعك الحقيقي..."}</div>
+        <div class="hud-topbar">
+          <button class="icon-btn" style="width:36px;height:36px;" onclick="onNav('landing')">${ICONS.back}</button>
+          <div style="text-align:center;min-width:0;">
+            <div style="font-size:13.5px;font-weight:900;">تحديد منطقة الكمين</div>
+            <div id="create-gps-sub" style="font-size:10.5px;color:var(--muted);font-weight:700;">${esc(accTxt)}</div>
           </div>
-          <div style="width:34px;"></div>
+          <button class="icon-btn" style="width:36px;height:36px;" onclick="onOpenModal('game_settings')">${ICONS.sliders}</button>
         </div>
         ${st.gps.anchorCalibrating ? `
-          <div class="alert-strip pulse-gold" style="background:rgba(10,14,24,0.95);border:1.5px solid var(--gold);color:#FDE68A;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <span>🎯 اضغط على مكانك الحقيقي بالظبط ع الخريطة</span>
+          <div class="hud-ticker amber">
+            <span>اضغط على مكانك الحقيقي على الرادار</span>
             <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
           </div>
         ` : ""}
       `);
-      const cAcc = st.gps.accuracy;
-      const cAccCls = !cAcc ? "" : (cAcc <= 4.5 ? "acc-ultra" : (cAcc <= 12 ? "acc-good" : (cAcc <= 25 ? "acc-mid" : "acc-poor")));
+
       setHtmlIfChanged(sideEl, `
-        <button class="map-fab" title="${styleTitle}" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
-        <button id="gps-acc-fab" class="map-fab ${cAccCls}" style="font-size:10px;font-weight:900;" title="نظام الدقة 3م" onclick="onOpenModal('precision_hud')">${cAcc ? "±" + (cAcc < 10 ? cAcc.toFixed(1) : Math.round(cAcc)) : "📡"}</button>
-        <button class="map-fab" title="موقعي" onclick="onUseMyLocationForZone()">📍</button>
+        <button class="map-fab" title="موقعي" onclick="onUseMyLocationForZone()">${ICONS.target}</button>
+        <button class="map-fab" title="نمط الرادار" onclick="Kameen.Map.cycleStyle()">${ICONS.radar}</button>
       `);
+
       setHtmlIfChanged(botEl, `
-        <div class="hud-glass" style="display:flex;flex-direction:column;gap:9px;">
+        <div class="hud-panel" style="display:flex;flex-direction:column;gap:10px;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span id="create-radius-lbl" style="font-size:12px;font-weight:900;">نصف القطر: <span style="color:var(--gold);">${f.radius}م</span> • ${f.pois.length} معلم (${esc(f.poiSource || "جاهز")})</span>
-            <button class="btn btn-outline btn-xs" onclick="onToggleCreatePanel()">${f.panelCollapsed ? "إعدادات ⬆️" : "طي ⬇️"}</button>
+            <div>
+              <div class="eyebrow">RADIUS &amp; RADAR PING</div>
+              <div id="create-radius-lbl" style="font-size:13px;font-weight:900;">نصف القطر <span style="color:var(--crimson);" class="tnum">${f.radius}م</span> • رصد كل ${formatRevealLabel(f.revealIntervalSec)}</div>
+            </div>
+            <button class="btn btn-outline btn-xs" onclick="onOpenModal('game_settings')">الإعدادات</button>
           </div>
           <input type="range" min="100" max="800" step="25" value="${f.radius}" style="width:100%;accent-color:var(--crimson);"
             oninput="onRadiusSlide(this.value)"
             onchange="void Kameen.Map.fetchOverpassPOIs(Kameen.state.createForm.center, Kameen.state.createForm.radius)" />
-          ${!f.panelCollapsed ? `
-            <input id="create-title-inp" class="input" style="padding:9px 12px;font-size:12px;" value="${esc(f.title)}"
-              oninput="Kameen.state.createForm.title=this.value" placeholder="اسم الجيم (مثال: كمين شارع 9)" />
-            <div class="grid-3">
-              <div>
-                <div style="font-size:10px;color:var(--muted);font-weight:800;margin-bottom:3px;">مدة الجيم</div>
-                <div class="grid-3" style="gap:3px;">
-                  ${[10, 15, 20].map((d) => `<button class="seg-btn ${f.duration===d?'active':''}" onclick="onSetCreateField('duration',${d})">${d}د</button>`).join("")}
-                </div>
-              </div>
-              <div>
-                <div style="font-size:10px;color:var(--muted);font-weight:800;margin-bottom:3px;">التشتيت</div>
-                <div class="grid-3" style="gap:3px;">
-                  ${[30, 60, 120].map((s) => `<button class="seg-btn ${f.spreadSeconds===s?'active':''}" onclick="onSetCreateField('spreadSeconds',${s})">${s<60?s+'ث':(s/60)+'د'}</button>`).join("")}
-                </div>
-              </div>
-              <div>
-                <div style="font-size:10px;color:var(--muted);font-weight:800;margin-bottom:3px;">الغدّارين</div>
-                <div class="grid-2" style="gap:3px;">
-                  ${[1, 2].map((n) => `<button class="seg-btn ${f.imposters===n?'active':''}" onclick="onSetCreateField('imposters',${n})">${n}</button>`).join("")}
-                </div>
-              </div>
-            </div>
-          ` : ""}
-          <button class="btn btn-primary" style="width:100%;padding:13px;" onclick="onCreateMatch()">افتح اللوبي واعزم الشلة 🔥</button>
+          <button class="btn btn-primary" style="width:100%;padding:13px;" onclick="onCreateMatch()">إنشاء الغرفة ودعوة اللاعبين</button>
         </div>
       `);
       return;
@@ -225,11 +326,10 @@ window.Kameen = window.Kameen || {};
     const vis = st.engine.getVisibleStateForPlayer(st.user.id);
     const C = K.GAME_CONSTANTS;
     const isImp = vis.self.role === "IMPOSTER";
+    const isSpec = vis.self.role === "SPECTATOR" || !vis.self.alive;
     const isSpread = vis.phase === "SPREAD";
-    const isAlive = vis.self.alive;
 
-    // Apply Dynamic Role Theme to whole app!
-    K.setBodyRoleTheme(!isAlive ? "ghost" : (isImp ? "imposter" : "investigator"));
+    K.setBodyRoleTheme(isSpec ? "ghost" : (isImp ? "imposter" : "investigator"));
     K.setDangerVignette(Boolean(vis.outsideZoneRemainingMs !== null || vis.showdownActive));
 
     const activeMission = vis.missions.find((m) => m.status === "in_progress");
@@ -242,170 +342,111 @@ window.Kameen = window.Kameen || {};
 
     const brokerActive = vis.activeBrokerOffer &&
       vis.nowMs < vis.activeBrokerOffer.expiresAtMs &&
-      isAlive &&
+      !isSpec &&
       !vis.activeBrokerOffer.acceptedByPlayerIds.includes(vis.self.id);
     const brokerRem = brokerActive ? Math.ceil((vis.activeBrokerOffer.expiresAtMs - vis.nowMs) / 1000) : 0;
 
     const drop = vis.activeAirdrop;
     const dropDist = drop ? Math.round(K.Geo.distanceMeters(vis.self.coords, drop.coords)) : null;
-    const dropCanClaim = drop && isAlive && dropDist <= C.AIRDROP_CLAIM_RANGE_M + 5;
-
+    const dropCanClaim = drop && !isSpec && dropDist <= C.AIRDROP_CLAIM_RANGE_M + 5;
     const invPct = Math.min(100, Math.round((vis.investigationDone / Math.max(1, vis.investigationGoal)) * 100));
 
-    // Side Floating Circular Map FABs (Clean 2D OpenStreetMap Controls!)
-    const gpsAcc = st.gps.accuracy;
-    const accCls = !gpsAcc ? "" : (gpsAcc <= 4.5 ? "acc-ultra" : (gpsAcc <= 12 ? "acc-good" : (gpsAcc <= 25 ? "acc-mid" : "acc-poor")));
-    const accLbl = gpsAcc ? ("±" + (gpsAcc < 10 ? Number(gpsAcc).toFixed(1) : Math.round(gpsAcc))) : "📡";
+    // Compact 3-button side rail (ZERO clutter!)
     setHtmlIfChanged(sideEl, `
-      <button class="map-fab" title="${styleTitle}" onclick="Kameen.Map.cycleStyle()">${styleIco}</button>
-      <button id="compass-rot-fab" class="map-fab ${st.mapRotateWithMe ? "active-fab" : ""}" title="لف الخريطة مع البوصلة 360°" onclick="Kameen.Map.toggleHeadingUp()">🧭</button>
-      <button id="follow-gps-fab" class="map-fab ${st.mapFollowMe ? "active-fab" : ""}" title="تتبع موقعي" onclick="Kameen.Map.recenter()">📍</button>
-      <button id="gps-acc-fab" class="map-fab ${accCls}" style="font-size:10px;font-weight:900;" title="نظام الدقة HyperLock 3M" onclick="onOpenModal('precision_hud')">${accLbl}</button>
-      <button class="map-fab" title="الصوت" onclick="Kameen.SFX.toggle();Kameen.UI.updateHudOnly()">${K.SFX.muted ? "🔇" : "🔊"}</button>
-      ${st.route === "simulation" ? `<button class="map-fab active-fab" title="أدوات المحاكاة" onclick="onOpenModal('sim_tools')">🧪</button>` : ""}
+      <button id="follow-gps-fab" class="map-fab ${st.mapFollowMe ? "active-fab" : ""}" title="تتبع موقعي" onclick="Kameen.Map.recenter()">${ICONS.target}</button>
+      <button id="compass-rot-fab" class="map-fab ${st.mapRotateWithMe ? "active-fab" : ""}" title="لف الرادار مع البوصلة" onclick="Kameen.Map.toggleHeadingUp()">${ICONS.compass}</button>
+      <button class="map-fab" title="نمط الرادار" onclick="Kameen.Map.cycleStyle()">${ICONS.radar}</button>
+      ${st.route === "simulation" ? `<button class="map-fab active-fab" title="أدوات المحاكاة" onclick="onOpenModal('sim_tools')" style="font-size:11px;">SIM</button>` : ""}
     `);
 
-    // --- B) GHOST / SPECTATOR DEDICATED SCREEN ---
-    if (!isAlive) {
-      setHtmlIfChanged(topEl, `
-        <div class="dynamic-capsule">
-          <span class="pill" style="background:rgba(148,163,184,0.2);color:#CBD5E1;">👻 وضع الشبح</span>
-          <div style="text-align:center;">
-            <div style="font-weight:900;font-size:13px;">${fmt(vis.remainingMatchMs)}</div>
-            <div style="font-size:9.5px;color:var(--muted);font-weight:700;">أحياء: ${vis.players.filter((p) => p.alive).length} • بتتفرج على الكل لايف</div>
+    const pingChip = isSpread
+      ? `<span class="pill pill-amber tnum">تشتيت ${fmt(vis.spreadRemainingMs)}</span>`
+      : (vis.revealMode === "live" && vis.isRevealActive
+          ? `<span class="pill pill-red tnum">لايف ${Math.ceil(vis.revealRemainingMs / 1000)}ث</span>`
+          : `<span class="pill tnum">رصد ${fmt(vis.nextRevealInMs)}</span>`);
+
+    const rolePill = isSpec
+      ? `<span class="pill">مشاهد</span>`
+      : (isImp
+          ? `<span class="pill pill-red">غدّار • ${vis.self.points}ن</span>`
+          : `<span class="pill pill-cyan">محقق • ${vis.self.points}ن</span>`);
+
+    const tickerHtml = buildSinglePriorityTicker(
+      vis, st, C, activeMission, activeDist, brokerActive, brokerRem, drop, dropDist, dropCanClaim
+    );
+
+    setHtmlIfChanged(topEl, `
+      <div class="hud-topbar" style="flex-direction:column;align-items:stretch;gap:0;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+          ${rolePill}
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="tnum" style="font-weight:900;font-size:14px;">${fmt(vis.remainingMatchMs)}</span>
+            ${pingChip}
           </div>
-          <span class="pill" style="background:var(--surface-2);color:var(--muted);">زون ${vis.zone.currentRadiusMeters}م</span>
+          <button class="icon-btn" style="width:34px;height:34px;" aria-label="القائمة والإعدادات" onclick="onOpenModal('game_settings')">${ICONS.menu}</button>
         </div>
-        ${st.lastIntel ? `
-          <div class="hud-glass" style="padding:8px 12px;font-size:11.5px;font-weight:800;" onclick="onOpenModal('intel_log')">
-            ${esc(st.lastIntel)}
+        ${!isSpec && !isImp && !isSpread ? `
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <span style="font-size:10px;font-weight:800;color:var(--cyan);white-space:nowrap;" class="tnum">القضية ${invPct}%</span>
+            <div class="inv-progress-track" style="margin-top:0;"><div class="inv-progress-fill" style="width:${invPct}%;"></div></div>
           </div>
         ` : ""}
-      `);
+      </div>
+      ${tickerHtml}
+    `);
+
+    // --- SPECTATOR / GHOST DOCK ---
+    if (isSpec) {
       setHtmlIfChanged(botEl, `
         <div class="role-dock" style="grid-template-columns:1fr 1fr;">
           <button class="dock-btn primary-dock" onclick="onOpenModal('intel_log')">
-            <span class="dock-ico">🤖</span><span>سجل المحلل (${vis.aiReports.length})</span>
+            ${ICONS.cpu}<span>سجل المحلل (${vis.aiReports.length})</span>
           </button>
           <button class="dock-btn" onclick="exitGameToLanding()">
-            <span class="dock-ico">🚪</span><span>خروج للرئيسية</span>
+            ${ICONS.back}<span>خروج</span>
           </button>
         </div>
       `);
       return;
     }
 
-    // --- C) IMPOSTER (الغدّار) DEDICATED HUNTER SCREEN ---
+    // --- IMPOSTER BOTTOM DOCK ---
     if (isImp) {
       const nt = vis.nearestTarget;
-      const proxLabel = !isSpread && nt
-        ? (nt.inKillRange
-            ? `🔥 جوه مدى التفنيش! (${nt.dist}م)`
-            : nt.inSenseRange
-              ? `🎯 صيدة قريبة: ${nt.dist}م`
-              : `🔍 أقرب صيدة: ${nt.dist}م`)
-        : "🏃 وقت التشتيت";
-
-      setHtmlIfChanged(topEl, `
-        <div class="dynamic-capsule">
-          <span class="pill" style="background:var(--crimson-soft);color:#FF6B86;">🔪 الغدّار • ${vis.self.points}ن</span>
-          <div style="text-align:center;">
-            <div style="font-weight:900;font-size:14px;line-height:1.1;color:${isSpread ? "var(--gold)" : "#fff"};">
-              ${isSpread ? "تشتيت " + fmt(vis.spreadRemainingMs) : fmt(vis.remainingMatchMs)}
-            </div>
-            <div style="font-size:9.5px;color:var(--muted);font-weight:700;">
-              صيدات: ${vis.players.filter((p) => p.alive && p.role !== "IMPOSTER").length} • <span id="hud-compass-lbl" style="color:#FF6B86;">🧭 ${K.App.headingToArabic(st.gps.heading)}</span>
-            </div>
+      let actionHtml = "";
+      if (!isSpread && nt) {
+        const canKill = nt.inKillRange && killCdSec === 0;
+        const lbl = killCdSec > 0
+          ? `تهدئة التفنيش (${killCdSec}ث)`
+          : (nt.inKillRange
+              ? `إقصاء ${esc(nt.name || "الهدف")} الآن`
+              : `أقرب هدف: ${nt.dist}م`);
+        actionHtml = `
+          <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
+            <button class="hero-action-fab tnum"
+              style="background:${canKill ? "var(--crimson)" : "#121218"};border-color:${canKill ? "#FF6B7D" : "var(--border-strong)"};"
+              ${canKill ? "" : "disabled"}
+              onclick="onKillTarget('${nt.id}')">${lbl}</button>
+            ${nearbyBody ? `<button class="btn btn-outline btn-sm" onclick="onReportBody('${nearbyBody.id}')">بلاغ تمويه</button>` : ""}
           </div>
-          <span class="pill" style="background:rgba(255,46,84,0.14);color:#FDA4AF;font-size:10px;">
-            ${vis.aiJammed ? `⚡ ${vis.aiJammedRemainingSec}ث` : `زون ${vis.zone.currentRadiusMeters}م`}
-          </span>
-        </div>
-
-                ${st.gps.anchorCalibrating ? `
-          <div class="alert-strip pulse-gold" style="background:rgba(10,14,24,0.95);border:1.5px solid var(--gold);color:#FDE68A;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <span>🎯 اضغط على مكانك الحقيقي بالظبط ع الخريطة (إلغاء الترحيل)</span>
-            <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
-          </div>
-        ` : ""}
-        ${isSpread ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--gold);color:#FDE68A;">🏃 وقت التشتيت — اختار مكانك قبل ما الصيد يبدأ!</div>` : ""}
-        ${!isSpread && vis.postSpreadGraceSec > 0 ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--crimson);color:#FDA4AF;">⏳ التفنيش هيتفتح بعد ${vis.postSpreadGraceSec} ثانية — اتمشى طبيعي!</div>` : ""}
-        ${vis.showdownActive ? `<div class="alert-strip" style="background:linear-gradient(90deg,#991B1B,#FF2E54,#991B1B);color:#fff;">🔥 الخاتمة السخنة! تهدئة التفنيش قلت للنص!</div>` : ""}
-        ${vis.outsideZoneRemainingMs !== null ? `<div class="alert-strip pulse-red" style="background:var(--crimson);color:#fff;">⚠️ إنت برّه الزون! ادخل خلال ${Math.ceil(vis.outsideZoneRemainingMs / 1000)}ث!</div>` : ""}
-        ${vis.isRevealActive ? `<div class="alert-strip" style="background:rgba(255,46,84,0.92);color:#fff;">📡 الرادار شغال (${Math.ceil(vis.revealRemainingMs / 1000)}ث) — الكل مكشوف!</div>` : ""}
-
-        ${brokerActive ? `
-          <button class="btn btn-warning btn-sm pulse-gold" style="width:100%;" onclick="onOpenModal('broker')">
-            🤝 عرض السمسار للغدّار! اعرف مكان أقرب صيدة أو +60ن (${brokerRem}ث)
-          </button>
-        ` : ""}
-
-        ${drop ? `
-          <div class="hud-glass" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-color:var(--gold);gap:8px;">
-            <span style="font-size:11px;font-weight:800;color:#FDE68A;">💼 إمداد ${esc(drop.place)} (${dropDist}م)</span>
-            ${dropCanClaim
-              ? `<button class="btn btn-warning btn-xs pulse-gold" onclick="onClaimAirdrop()">القطها (+45ن) 🔥</button>`
-              : `<span style="font-size:10px;color:var(--muted);font-weight:800;">${Math.ceil((drop.expiresAtMs - vis.nowMs) / 1000)}ث</span>`}
-          </div>
-        ` : ""}
-
-        ${activeMission && !isSpread ? `
-          <div class="hud-glass" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-color:rgba(255,46,84,0.45);gap:8px;">
-            <div style="min-width:0;">
-              <div style="font-size:11.5px;font-weight:900;color:#FDA4AF;">🎭 تمويه: ${esc(activeMission.poi.name)}</div>
-              <div style="font-size:10.5px;color:var(--muted);font-weight:700;">باقي ${activeDist}م • +${activeMission.rewardPoints}ن</div>
-            </div>
-            <button class="btn btn-primary btn-xs" ${activeDist <= C.MISSION_RANGE_M + 5 ? "" : "disabled"} onclick="openCameraForMission('${activeMission.id}')">
-              ${activeDist <= C.MISSION_RANGE_M + 5 ? "توثيق 📸" : "قرّب"}
-            </button>
-          </div>
-        ` : ""}
-
-        ${st.lastIntel ? `
-          <div class="hud-glass" style="padding:9px 12px;border-color:var(--crimson);font-size:11.5px;font-weight:800;line-height:1.5;" onclick="onOpenModal('intel_log')">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
-              <span>${esc(st.lastIntel)}</span>
-              <span style="color:var(--muted);padding:2px 6px;" onclick="event.stopPropagation();Kameen.state.lastIntel=null;Kameen.UI.updateHudOnly()">✖</span>
-            </div>
-          </div>
-        ` : ""}
-      `);
-
+        `;
+      }
       setHtmlIfChanged(botEl, `
-        <div style="display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap;">
-          ${!isSpread && nt ? `
-            <button class="hero-action-fab ${nt.inKillRange && killCdSec === 0 ? "pulse-red" : ""}"
-              style="background:${nt.inKillRange && killCdSec === 0 ? "linear-gradient(135deg,#FF2E54,#991B1B)" : "rgba(18,24,38,0.92)"};border-color:${nt.inKillRange ? "#FF6B86" : "rgba(255,46,84,0.35)"};"
-              ${killCdSec > 0 || !nt.inKillRange ? "disabled" : ""}
-              onclick="onKillTarget('${nt.id}')">
-              ${killCdSec > 0
-                ? `⏳ تهدئة التفنيش (${killCdSec}ث)`
-                : nt.inKillRange
-                  ? `🔪 فنش ${esc(nt.name || "الهدف")} دلوقتي!`
-                  : proxLabel}
-            </button>
-          ` : ""}
-          ${!isSpread && nearbyBody ? `
-            <button class="btn btn-outline btn-sm" style="border-color:var(--gold);color:#FDE68A;" onclick="onReportBody('${nearbyBody.id}')">
-              🚨 بلّغ تمويه (${esc(nearbyBody.victimName)})
-            </button>
-          ` : ""}
-        </div>
-
+        ${actionHtml}
         <div class="role-dock">
           <button class="dock-btn" onclick="Kameen.Map.recenter()">
-            <span class="dock-ico">🩸</span><span>الصيد</span>
+            ${ICONS.target}<span>الرادار</span>
           </button>
           <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('missions_sheet')">
-            <span class="dock-ico">🎭</span><span>التمويه</span>
+            ${ICONS.flag}<span>التمويه</span>
             <span class="dock-badge">${vis.missions.filter((m) => m.status === "completed").length}/3</span>
           </button>
           <button class="dock-btn primary-dock" ${isSpread ? "disabled" : ""} onclick="onOpenModal('imposter_powers')">
-            <span class="dock-ico">😈</span><span>ألاعيب</span>
+            ${ICONS.bolt}<span>الألاعيب</span>
             <span class="dock-badge">${vis.self.points}</span>
           </button>
           <button class="dock-btn" onclick="onOpenModal('intel_log')">
-            <span class="dock-ico">🤖</span><span>المحلل</span>
+            ${ICONS.cpu}<span>المحلل</span>
             ${vis.aiReports.length ? `<span class="dock-badge">${vis.aiReports.length}</span>` : ""}
           </button>
         </div>
@@ -413,105 +454,27 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // --- D) INVESTIGATOR (المحقق) DEDICATED DETECTIVE SCREEN ---
-    setHtmlIfChanged(topEl, `
-      <div class="dynamic-capsule" style="flex-direction:column;align-items:stretch;gap:4px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-          <span class="pill" style="background:var(--cyan-soft);color:#67E8F9;">🕵️ المحقق • ${vis.self.points}ن</span>
-          <div style="text-align:center;">
-            <div style="font-weight:900;font-size:14px;line-height:1.1;color:${isSpread ? "var(--gold)" : "#fff"};">
-              ${isSpread ? "تشتيت " + fmt(vis.spreadRemainingMs) : fmt(vis.remainingMatchMs)}
-            </div>
-            <div style="font-size:9.5px;color:var(--muted);font-weight:700;">
-              أحياء: ${vis.players.filter((p) => p.alive).length} • <span id="hud-compass-lbl" style="color:#67E8F9;">🧭 ${K.App.headingToArabic(st.gps.heading)}</span>
-            </div>
-          </div>
-          <span class="pill" style="background:rgba(0,212,255,0.12);color:#7DD3FC;font-size:10px;">
-            ${vis.self.protectedUntilMs > vis.nowMs ? `🛡️ ${Math.ceil((vis.self.protectedUntilMs - vis.nowMs) / 1000)}ث` : `زون ${vis.zone.currentRadiusMeters}م`}
-          </span>
-        </div>
-        ${!isSpread ? `
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span style="font-size:9.5px;font-weight:800;color:#67E8F9;white-space:nowrap;">🔍 القضية ${invPct}%</span>
-            <div class="inv-progress-track" style="margin-top:0;">
-              <div class="inv-progress-fill" style="width:${invPct}%;"></div>
-            </div>
-          </div>
-        ` : ""}
-      </div>
-
-              ${st.gps.anchorCalibrating ? `
-          <div class="alert-strip pulse-gold" style="background:rgba(10,14,24,0.95);border:1.5px solid var(--gold);color:#FDE68A;display:flex;justify-content:space-between;align-items:center;gap:8px;">
-            <span>🎯 اضغط على مكانك الحقيقي بالظبط ع الخريطة (إلغاء الترحيل)</span>
-            <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
-          </div>
-        ` : ""}
-      ${isSpread ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--gold);color:#FDE68A;">🏃 وقت التشتيت — اتفرقوا في الحي قبل ما الغدّار يبدأ!</div>` : ""}
-      ${!isSpread && vis.postSpreadGraceSec > 0 ? `<div class="alert-strip" style="background:rgba(10,14,24,0.92);border:1px solid var(--green);color:#6EE7B7;">🛡️ فترة أمان (${vis.postSpreadGraceSec}ث) — ابدأ أول مهمة ليك!</div>` : ""}
-      ${vis.dangerSense ? `<div class="alert-strip ${vis.dangerSense.level === "critical" ? "pulse-red" : ""}" style="background:${vis.dangerSense.level === "critical" ? "linear-gradient(90deg,rgba(160,10,36,0.92),rgba(255,30,66,0.92),rgba(160,10,36,0.92))" : "rgba(46,8,16,0.88)"};border:1px solid var(--crimson);color:#FFF5F7;">${esc(vis.dangerSense.label)}</div>` : ""}
-      ${vis.showdownActive ? `<div class="alert-strip" style="background:linear-gradient(90deg,#991B1B,#FF2E54,#991B1B);color:#fff;">🔥 الخاتمة السخنة! الرادار كل 45ث — اصمد أو خلّص القضية!</div>` : ""}
-      ${vis.aiJammed ? `<div class="alert-strip" style="background:rgba(10,14,24,0.94);border:1px solid var(--cyan);color:#7DD3FC;">⚡ الغدّار عامل تشويش! المحلل والرادار فصلوا مؤقتاً!</div>` : ""}
-      ${vis.outsideZoneRemainingMs !== null ? `<div class="alert-strip pulse-red" style="background:var(--crimson);color:#fff;">⚠️ إنت برّه الزون! ادخل خلال ${Math.ceil(vis.outsideZoneRemainingMs / 1000)}ث!</div>` : ""}
-      ${vis.isRevealActive ? `<div class="alert-strip" style="background:linear-gradient(90deg,#0369A1,#00B4D8);color:#fff;">📡 الرادار كاشف أماكن الكل لمدة ${Math.ceil(vis.revealRemainingMs / 1000)}ث!</div>` : ""}
-
-      ${brokerActive ? `
-        <button class="btn btn-warning btn-sm pulse-gold" style="width:100%;" onclick="onOpenModal('broker')">
-          🤝 عرض السمسار! اعرف مكان أقرب غدّار أو +60ن (${brokerRem}ث)
-        </button>
-      ` : ""}
-
-      ${drop ? `
-        <div class="hud-glass" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-color:var(--gold);gap:8px;">
-          <span style="font-size:11px;font-weight:800;color:#FDE68A;">💼 إمداد ${esc(drop.place)} (${dropDist}م)</span>
-          ${dropCanClaim
-            ? `<button class="btn btn-warning btn-xs pulse-gold" onclick="onClaimAirdrop()">القطها (+45ن + درع) 🔥</button>`
-            : `<span style="font-size:10px;color:var(--muted);font-weight:800;">${Math.ceil((drop.expiresAtMs - vis.nowMs) / 1000)}ث</span>`}
-        </div>
-      ` : ""}
-
-      ${activeMission && !isSpread ? `
-        <div class="hud-glass" style="padding:8px 12px;display:flex;justify-content:space-between;align-items:center;border-color:var(--cyan);gap:8px;">
-          <div style="min-width:0;">
-            <div style="font-size:11.5px;font-weight:900;color:#67E8F9;">🎯 ${esc(activeMission.poi.name)}</div>
-            <div style="font-size:10.5px;color:var(--muted);font-weight:700;">باقي ${activeDist}م • ${K.Geo.getArabicDirection(vis.self.coords, { lat: activeMission.poi.lat, lng: activeMission.poi.lng })}</div>
-          </div>
-          <button class="btn btn-cyan btn-xs" ${activeDist <= C.MISSION_RANGE_M + 5 ? "" : "disabled"} onclick="openCameraForMission('${activeMission.id}')">
-            ${activeDist <= C.MISSION_RANGE_M + 5 ? "صوّر الدليل 📸" : "قرّب"}
-          </button>
-        </div>
-      ` : ""}
-
-      ${st.lastIntel ? `
-        <div class="hud-glass" style="padding:9px 12px;border-color:var(--cyan);font-size:11.5px;font-weight:800;line-height:1.5;" onclick="onOpenModal('intel_log')">
-          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
-            <span>${esc(st.lastIntel)}</span>
-            <span style="color:var(--muted);padding:2px 6px;" onclick="event.stopPropagation();Kameen.state.lastIntel=null;Kameen.UI.updateHudOnly()">✖</span>
-          </div>
-        </div>
-      ` : ""}
-    `);
-
+    // --- INVESTIGATOR BOTTOM DOCK ---
     setHtmlIfChanged(botEl, `
       ${!isSpread && nearbyBody ? `
-        <button class="hero-action-fab pulse-red" style="background:linear-gradient(135deg,#FF2E54,#991B1B);" onclick="onReportBody('${nearbyBody.id}')">
-          🚨 لقيت جثة ${esc(nearbyBody.victimName)} — اطلب اجتماع!
+        <button class="hero-action-fab" style="background:var(--crimson);border-color:#FF6B7D;" onclick="onReportBody('${nearbyBody.id}')">
+          إبلاغ عن جثة ${esc(nearbyBody.victimName)} — اجتماع طارئ
         </button>
       ` : ""}
-
       <div class="role-dock">
         <button class="dock-btn primary-dock" ${isSpread ? "disabled" : ""} onclick="onOpenModal('missions_sheet')">
-          <span class="dock-ico">🎯</span><span>المهام</span>
+          ${ICONS.flag}<span>المهام</span>
           <span class="dock-badge">${vis.missions.filter((m) => m.status === "completed").length}/3</span>
         </button>
         <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('investigator_powers')">
-          <span class="dock-ico">🛡️</span><span>أدواتي</span>
+          ${ICONS.shield}<span>الأدوات</span>
           <span class="dock-badge">${vis.self.points}</span>
         </button>
         <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('spoken')">
-          <span class="dock-ico">🗣️</span><span>قفشة</span>
+          ${ICONS.target}<span>اتهام</span>
         </button>
         <button class="dock-btn" onclick="onOpenModal('intel_log')">
-          <span class="dock-ico">🤖</span><span>المحلل</span>
+          ${ICONS.cpu}<span>المحلل</span>
           ${vis.aiReports.length ? `<span class="dock-badge">${vis.aiReports.length}</span>` : ""}
         </button>
       </div>
@@ -519,7 +482,7 @@ window.Kameen = window.Kameen || {};
   }
 
   // =========================================================================
-  // NON-MAP NATIVE APP PAGES (Home / Lobby / Meeting / Result / Profile / Howto)
+  // NON-MAP PAGES (Permissions Gate / Home / HideZone-Style Lobby / Meeting / Result / Profile / HowTo)
   // =========================================================================
   function renderPage() {
     const st = K.state;
@@ -530,174 +493,255 @@ window.Kameen = window.Kameen || {};
     renderAppHeader();
     renderAppTabBar();
 
-    if (st.route === "landing") {
-      const hasAiKey = Boolean((st.groqKey || "").trim());
+    // --- 0) FIRST-LAUNCH AUTOMATIC PERMISSIONS GATE ---
+    if (st.route === "permissions_gate") {
       root.innerHTML = `
-        <div class="hero-radar">
-          <div class="hero-content">
-            <img src="${K.CONFIG.LOGO_PATH}" class="brand-logo-lg" alt="شعار كمين" />
-            <div style="font-size:28px;font-weight:900;margin-top:6px;">كمين</div>
-            <div style="font-size:12.5px;color:#FDA4AF;font-weight:800;">متأمنش لحد.. حتى صاحبك اللي ماشي جنبك! 👀</div>
-            <div style="margin-top:10px;display:flex;justify-content:center;gap:6px;flex-wrap:wrap;">
-              <span class="pill sb-status-badge" style="background:rgba(16,185,129,0.2);color:#6EE7B7;">سوبابيس جاهز 🟢</span>
-              <span class="pill" style="background:${hasAiKey ? "rgba(0,212,255,0.18)" : "rgba(255,176,32,0.18)"};color:${hasAiKey ? "#67E8F9" : "#FDE68A"};cursor:pointer;" onclick="onOpenModal('permissions')">
-                ${hasAiKey ? "Groq AI لايف 🤖" : "فعّل مفتاح AI ⚙️"}
-              </span>
+        <div style="flex:1;display:flex;flex-direction:column;justify-content:center;gap:16px;padding:12px 0;">
+          <div style="text-align:center;">
+            <img src="${K.CONFIG.LOGO_PATH}" class="brand-logo-lg" alt="كمين" />
+            <div class="eyebrow" style="margin-top:12px;color:var(--crimson);">KAMEEN TACTICAL RADAR</div>
+            <div style="font-size:24px;font-weight:900;margin-top:2px;">تجهيز الأذونات التلقائي</div>
+            <p style="font-size:12.5px;color:var(--muted);font-weight:600;margin:6px 0 0;line-height:1.6;">
+              لأعلى دقة موقع وبوصلة ثابتة بدون أي إعدادات يدوية، فعّل الأذونات مرة واحدة فقط.
+            </p>
+          </div>
+
+          <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <div>
+                <div style="font-size:13px;font-weight:800;">الموقع الدقيق (HyperLock GPS)</div>
+                <div style="font-size:11px;color:var(--muted);">لتحديد موقعك بدقة الشارع وتحديث الرادار تلقائياً</div>
+              </div>
+              <span class="pill ${st.gps.status === "granted" ? "pill-green" : "pill-amber"}">${st.gps.status === "granted" ? "مفعّل" : "مطلوب"}</span>
+            </div>
+            <div style="height:1px;background:var(--border);"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <div>
+                <div style="font-size:13px;font-weight:800;">البوصلة وحساس الخطوات (PDR)</div>
+                <div style="font-size:11px;color:var(--muted);">يشتغلوا تلقائياً لتثبيت الاتجاه وتقليل خطأ الـ GPS</div>
+              </div>
+              <span class="pill ${st.gps.compassActive || st.gps.motionActive ? "pill-green" : "pill-amber"}">${st.gps.compassActive || st.gps.motionActive ? "مفعّل" : "تلقائي"}</span>
+            </div>
+            <div style="height:1px;background:var(--border);"></div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <div>
+                <div style="font-size:13px;font-weight:800;">الكاميرا</div>
+                <div style="font-size:11px;color:var(--muted);">لتوثيق المهام الميدانية داخل المنطقة</div>
+              </div>
+              <span class="pill ${st.camera.status === "granted" ? "pill-green" : ""}">${st.camera.status === "granted" ? "مفعّلة" : "اختياري"}</span>
             </div>
           </div>
+
+          <button class="btn btn-primary" style="width:100%;padding:14px;font-size:15px;" onclick="onGrantAllPermissionsAndEnter()">
+            تفعيل الأذونات والبدء
+          </button>
+          <button class="btn btn-muted btn-sm" style="width:100%;" onclick="onSkipPermissionsGate()">
+            الدخول الآن وتفعيلها لاحقاً
+          </button>
+        </div>
+      `;
+      return;
+    }
+
+    // --- 1) HOME SCREEN (Clean HideZone Tactical Aesthetic) ---
+    if (st.route === "landing") {
+      root.innerHTML = `
+        <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;border-right:3px solid var(--crimson);">
+          <div>
+            <div class="eyebrow" style="color:var(--crimson);">GAME MODE: KAMEEN</div>
+            <div style="font-size:20px;font-weight:900;margin-top:2px;">مطاردة واقعية بالرادار</div>
+            <div style="font-size:12px;color:var(--muted);font-weight:700;margin-top:2px;">فريق واحد • غدّارين عشوائيين • رصد دوري متجدد</div>
+          </div>
+          <span class="pill sb-status-badge pill-green">جاهز</span>
         </div>
 
         <div class="card" style="display:flex;flex-direction:column;gap:11px;">
           <div>
-            <div class="section-label" style="margin-bottom:5px;">اسم العميل بتاعك</div>
+            <div class="eyebrow" style="margin-bottom:5px;">اسم اللاعب</div>
             <input id="player-name-input" class="input" type="text" value="${esc(st.user.name)}"
               oninput="Kameen.state.user.name=this.value;try{localStorage.setItem('kameen_name',this.value)}catch{}"
-              placeholder="اكتب اسمك الروش..." />
+              placeholder="اكتب اسمك..." />
           </div>
 
           <button class="btn btn-primary" style="width:100%;padding:14px;font-size:14.5px;" onclick="onStartCreateFlow()">
-            📡 اعمل كمين جديد على الرادار
+            إنشاء منطقة كمين جديدة
           </button>
 
           <div style="display:flex;gap:8px;">
-            <input id="join-code-input" class="input" type="text" value="${esc(st.joinCode)}"
+            <input id="join-code-input" class="input tnum" type="text" value="${esc(st.joinCode)}"
               oninput="Kameen.state.joinCode=this.value.toUpperCase()"
               onkeydown="if(event.key==='Enter')onJoinByInput()"
-              placeholder="كود الروم (KMN402)"
-              style="flex:1;text-align:center;letter-spacing:1.5px;text-transform:uppercase;" />
-            <button class="btn btn-cyan" style="padding:0 20px;" onclick="onJoinByInput()">ادخل 🚀</button>
+              placeholder="كود المنطقة (KMN402)"
+              style="flex:1;text-align:center;letter-spacing:2px;text-transform:uppercase;" />
+            <button class="btn btn-emerald-outline" style="padding:0 22px;" onclick="onJoinByInput()">انضم</button>
           </div>
         </div>
 
-        <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;border-color:rgba(255,176,32,0.28);cursor:pointer;" onclick="onStartSimulation()">
+        <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;" onclick="onStartSimulation()">
           <div>
-            <div style="font-weight:900;font-size:14px;color:#FDE68A;">🧪 مختبر التجربة الفردي</div>
-            <div style="font-size:11px;color:var(--muted);font-weight:700;">جرب صفحة الغدّار والمحقق مع 6 بوتات أذكياء</div>
+            <div style="font-weight:900;font-size:14px;">تجربة فردية (محاكاة بالبوتات)</div>
+            <div style="font-size:11.5px;color:var(--muted);font-weight:600;">اختبر الرادار والدقة ودور الغدّار والمحقق فوراً</div>
           </div>
-          <span class="pill" style="background:var(--gold-soft);color:#FDE68A;">جرّب</span>
+          <span class="pill pill-red">ابدأ</span>
         </div>
+
+        <button class="btn btn-crimson-outline" style="width:100%;" onclick="onNav('howto')">
+          طريقة اللعب والقوانين
+        </button>
       `;
       K.Network.updateConnectionBadges();
       return;
     }
 
+    // --- 2) HIDEZONE-STYLE LOBBY (Unified Team + Random Imposters + Spectator Toggle + Sliders Settings!) ---
     if (st.route === "lobby" && st.lobby) {
       const l = st.lobby;
       const isHost = l.hostId === st.user.id;
+      const meInLobby = l.players.find((p) => p.id === st.user.id);
+      const isSpec = Boolean(meInLobby && meInLobby.isSpectator);
+      const activePlayers = l.players.filter((p) => !p.isSpectator);
+      const canStart = activePlayers.length >= 3;
+
       root.innerHTML = `
-        <div class="card" style="text-align:center;border-color:rgba(255,46,84,0.32);">
-          <div style="font-size:11px;color:var(--muted);font-weight:800;">كود دخول الروم</div>
-          <div style="font-size:38px;font-weight:900;letter-spacing:5px;color:#FDA4AF;margin:4px 0;">${esc(l.code)}</div>
-          <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:8px;">
-            <button class="btn btn-soft btn-sm" onclick="onCopyInviteCode()">📋 نسخ الكود</button>
-            <button class="btn btn-success btn-sm" onclick="onShareWhatsApp()">💬 دعوة واتساب</button>
+        <div style="text-align:center;font-size:11.5px;font-weight:900;letter-spacing:0.6px;color:var(--crimson);">
+          وضع اللعب: كمين — غدّارين عشوائيين
+        </div>
+
+        <div class="hz-stats-card">
+          <div class="hz-stat-col">
+            <div class="hz-bar red"></div>
+            <div>
+              <div class="hz-stat-num tnum" style="color:var(--crimson);">${l.imposters}</div>
+              <div class="hz-stat-lbl">غدّار عشوائي</div>
+            </div>
           </div>
-          <div style="margin-top:10px;display:flex;justify-content:center;gap:6px;flex-wrap:wrap;">
-            <span class="pill" style="background:var(--surface-2);color:var(--muted);">زون ${l.radius}م</span>
-            <span class="pill" style="background:var(--surface-2);color:var(--muted);">${l.duration} دقيقة</span>
-            <span class="pill" style="background:var(--surface-2);color:var(--muted);">${l.imposters} غدّار</span>
+          <div style="font-size:11px;font-weight:900;color:var(--dim);">•</div>
+          <div class="hz-stat-col end">
+            <div style="text-align:left;">
+              <div class="hz-stat-num tnum" style="color:var(--emerald);">${activePlayers.length}</div>
+              <div class="hz-stat-lbl">لاعبين • رصد كل ${formatRevealLabel(l.revealIntervalSec)}</div>
+            </div>
+            <div class="hz-bar green"></div>
           </div>
         </div>
 
-        <div class="card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-            <span style="font-weight:900;font-size:14px;">الشلة اللي دخلت (${l.players.length})</span>
-            ${isHost ? `<button class="btn btn-soft btn-sm" onclick="onAddBotToLobby()">+ ضيف بوت 🤖</button>` : ""}
-          </div>
-          <div style="display:flex;flex-direction:column;gap:8px;">
-            ${l.players.map((p) => `
-              <div class="player-row">
-                <div style="display:flex;align-items:center;gap:10px;">
-                  ${avatarBadge(p.name)}
-                  <div>
-                    <div style="font-size:13px;font-weight:800;">${esc(p.name)}</div>
-                    <div style="font-size:10px;color:var(--muted);font-weight:700;">${p.isHost ? "الريس 👑" : (p.isBot ? "بوت ذكي 🤖" : "عميل جاهز")}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:2px 2px 0;">
+          <span class="eyebrow">اللاعبون في الغرفة (${l.players.length})</span>
+          ${isHost ? `<button class="btn btn-outline btn-xs" onclick="onAddBotToLobby()">+ إضافة بوت</button>` : `<span class="pill sb-status-badge">متصل</span>`}
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:7px;">
+          ${l.players.map((p, idx) => `
+            <div class="player-row ${p.isSpectator ? "spec-row" : (p.isHost ? "" : "ready-row")}">
+              <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+                ${avatarBadge(p.name)}
+                <div style="min-width:0;">
+                  <div style="font-size:13.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.name)}</div>
+                  <div style="font-size:10.5px;color:var(--muted);font-weight:700;">
+                    ${p.isSpectator ? "وضع المشاهد" : (p.isHost ? "قائد الغرفة" : (p.isBot ? "بوت" : "جاهز للعب"))}
                   </div>
                 </div>
-                <div style="display:flex;align-items:center;gap:7px;">
-                  <span class="status-dot live"></span>
-                  ${isHost && !p.isHost ? `<button class="btn btn-outline btn-xs" onclick="onKickLobbyPlayer('${p.id}')">✖</button>` : ""}
-                </div>
               </div>
-            `).join("")}
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span class="ver-pill tnum">${idx + 1}</span>
+                ${isHost && !p.isHost ? `<button class="btn btn-outline btn-xs" onclick="onKickLobbyPlayer('${p.id}')">×</button>` : ""}
+              </div>
+            </div>
+          `).join("")}
+        </div>
+
+        <button class="btn btn-crimson-outline" style="width:100%;" onclick="onOpenModal('howto_sheet')">
+          طريقة اللعب
+        </button>
+
+        <div class="toggle-card" onclick="onToggleLobbySpectator()">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="color:var(--muted);display:inline-flex;">${ICONS.eye}</span>
+            <div>
+              <div style="font-size:13px;font-weight:800;">وضع المشاهد (Spectator Mode)</div>
+              <div style="font-size:11px;color:var(--muted);">متابعة الرادار لايف بدون المشاركة في اللعب</div>
+            </div>
           </div>
+          <div class="hz-switch ${isSpec ? "on" : ""}"></div>
         </div>
 
         ${isHost
-          ? `<button class="btn btn-primary" style="width:100%;padding:15px;font-size:15px;" onclick="onStartMatchFromLobby()">ابدأ الكمين دلوقتي! 🔥</button>`
-          : `<div class="card" style="text-align:center;font-size:13px;font-weight:800;color:var(--gold);">⏳ مستنيين الريس يبدأ الجيم... استعد!</div>`}
+          ? `<button class="btn ${canStart ? "btn-primary" : "btn-muted"}" style="width:100%;padding:14px;font-size:14.5px;" ${canStart ? "" : "disabled"} onclick="onStartMatchFromLobby()">
+              ${canStart ? "بدء الكمين الآن" : "في انتظار اللاعبين (مطلوب 3 لاعبين على الأقل)"}
+            </button>`
+          : `<div class="card" style="text-align:center;font-size:13px;font-weight:800;color:var(--muted);">في انتظار قائد الغرفة لبدء الجيم...</div>`}
       `;
       K.Network.updateConnectionBadges();
       return;
     }
 
+    // --- 3) EMERGENCY MEETING ---
     if (st.route === "meeting" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const m = vis.activeMeeting;
       if (!m) return;
       root.innerHTML = `
-        <div class="card" style="background:linear-gradient(135deg,#D91E36,#6E1517);border-color:#FF6B86;padding:12px 15px;">
-          <div style="font-size:14px;font-weight:900;">${esc(m.triggeredByName)} لقى جثة ${esc(m.victimName || "ضحية")}!</div>
-          <div style="font-size:11px;color:#FFE4E6;font-weight:700;">قارنوا تقارير المحلل وصوّتوا تطردوا مين</div>
+        <div class="card" style="border-right:3px solid var(--crimson);background:#15080B;">
+          <div style="font-size:14px;font-weight:900;">${esc(m.triggeredByName)} أبلغ عن جثة ${esc(m.victimName || "لاعب")}</div>
+          <div style="font-size:11.5px;color:var(--muted);font-weight:700;">راجعوا تقارير المحلل وصوّتوا لطرد المشتبه به</div>
         </div>
 
-        <div class="card" style="padding:12px;">
-          <div style="font-weight:900;font-size:12px;color:#FDA4AF;margin-bottom:6px;">🤖 آخر تقارير المحلل النفسي:</div>
+        <div class="card">
+          <div class="eyebrow" style="margin-bottom:6px;color:var(--crimson);">تقارير المحلل</div>
           <div id="meeting-intel-feed" style="display:flex;flex-direction:column;gap:6px;max-height:92px;overflow-y:auto;">
             ${buildMeetingIntelHtml(vis)}
           </div>
         </div>
 
-        <div class="card" style="padding:12px;">
-          <div style="font-weight:900;font-size:12px;margin-bottom:6px;">💬 الخناقة المباشرة:</div>
+        <div class="card">
+          <div class="eyebrow" style="margin-bottom:6px;">المناقشة المباشرة</div>
           <div id="meeting-chat-feed" class="chat-box">${buildMeetingChatHtml(m)}</div>
           ${vis.self.alive ? `
-            <div style="display:flex;gap:5px;overflow-x:auto;padding:6px 0 8px;">
+            <div style="display:flex;gap:5px;overflow-x:auto;padding:8px 0;">
               ${K.QUICK_CHAT_LINES.map((q) =>
                 `<button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickMeetingChat('${esc(q)}')">${esc(q)}</button>`
               ).join("")}
             </div>
             <div style="display:flex;gap:6px;">
               <input id="meeting-chat-input" class="input" style="padding:9px 12px;font-size:12px;" type="text"
-                placeholder="دافع عن نفسك أو اتهم حد..."
-                onkeydown="if(event.key==='Enter')onSendMeetingChat()" />
-              <button class="btn btn-primary btn-sm" style="padding:0 14px;" onclick="onSendMeetingChat()">ابعت</button>
+                placeholder="اكتب رسالتك..." onkeydown="if(event.key==='Enter')onSendMeetingChat()" />
+              <button class="btn btn-primary btn-sm" onclick="onSendMeetingChat()">إرسال</button>
             </div>
-          ` : `<div style="font-size:11px;color:var(--muted);text-align:center;padding-top:6px;">👻 الأشباح بيتفرجوا بس!</div>`}
+          ` : `<div style="font-size:11px;color:var(--muted);text-align:center;padding-top:6px;">وضع المشاهدة فقط</div>`}
         </div>
 
-        <div class="card" style="padding:12px;">
-          <div style="font-weight:900;font-size:13px;margin-bottom:8px;">🗳️ صوّت مين الغدّار:</div>
+        <div class="card">
+          <div class="eyebrow" style="margin-bottom:8px;">التصويت</div>
           <div id="meeting-votes-section">${buildMeetingVotesHtml(vis)}</div>
         </div>
       `;
       return;
     }
 
+    // --- 4) MATCH RESULT ---
     if (st.route === "result" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const invWin = vis.winner === "INVESTIGATORS";
       root.innerHTML = `
-        <div class="card" style="background:${invWin ? "linear-gradient(135deg,#047857,#064E3B)" : "linear-gradient(135deg,#D91E36,#6E1517)"};text-align:center;padding:22px 16px;">
-          <div style="font-size:40px;">${invWin ? "🏆🕵️" : "😈🔪"}</div>
-          <div style="font-size:23px;font-weight:900;margin-top:4px;">${invWin ? "مبروك للمحققين!" : "الغدّارين كسبوا الجيم!"}</div>
-          <div style="font-size:13px;font-weight:700;margin-top:6px;color:#F8FAFC;">${esc(vis.winReason || "")}</div>
+        <div class="card" style="border-color:${invWin ? "var(--emerald-border)" : "var(--crimson-border)"};background:${invWin ? "#061510" : "#16070A"};text-align:center;padding:22px 16px;">
+          <div class="eyebrow" style="color:${invWin ? "var(--emerald)" : "var(--crimson)"};">MATCH OVER</div>
+          <div style="font-size:23px;font-weight:900;margin-top:4px;">${invWin ? "فوز المحققين" : "فوز الغدّارين"}</div>
+          <div style="font-size:13px;font-weight:700;margin-top:6px;color:var(--muted);">${esc(vis.winReason || "")}</div>
         </div>
 
-        <div id="ai-recap-box" class="card intel-item ${vis.aiMatchRecap ? "" : "hidden"}" style="font-size:13px;">
-          ${vis.aiMatchRecap ? "🤖 تعليق المحلل: " + esc(vis.aiMatchRecap) : ""}
+        <div id="ai-recap-box" class="intel-item ${vis.aiMatchRecap ? "" : "hidden"}">
+          ${vis.aiMatchRecap ? "تعليق المحلل: " + esc(vis.aiMatchRecap) : ""}
         </div>
 
         ${vis.awards && vis.awards.length ? `
           <div class="card">
-            <div style="font-weight:900;font-size:14px;margin-bottom:8px;">🏅 ألقاب الشلة</div>
+            <div class="eyebrow" style="margin-bottom:8px;">ألقاب الجيم</div>
             <div class="grid-2">
               ${vis.awards.map((a) => `
                 <div class="award-card">
-                  <div style="font-size:24px;">${a.icon}</div>
-                  <div style="font-size:12px;font-weight:900;color:#FDE68A;">${esc(a.title)}</div>
+                  <div style="font-size:12px;font-weight:900;color:var(--amber);">${esc(a.title)}</div>
                   <div style="font-size:13px;font-weight:800;">${esc(a.player)}</div>
-                  <div style="font-size:10px;color:var(--muted);font-weight:700;">${esc(a.stat)}</div>
+                  <div style="font-size:10.5px;color:var(--muted);">${esc(a.stat)}</div>
                 </div>
               `).join("")}
             </div>
@@ -705,16 +749,16 @@ window.Kameen = window.Kameen || {};
         ` : ""}
 
         <div class="card">
-          <div style="font-weight:900;font-size:14px;margin-bottom:8px;">🎭 كشف المستور</div>
+          <div class="eyebrow" style="margin-bottom:8px;">كشف الأدوار</div>
           <div style="display:flex;flex-direction:column;gap:7px;">
-            ${vis.players.map((p) => `
+            ${vis.players.filter((p) => !p.isSpectator).map((p) => `
               <div class="player-row ${p.alive ? "" : "dead"}">
                 <div style="display:flex;align-items:center;gap:9px;">
                   ${avatarBadge(p.name)}
                   <span style="font-size:13px;font-weight:800;">${esc(p.name)}</span>
                 </div>
-                <span class="pill" style="background:${p.role === "IMPOSTER" ? "var(--crimson-soft)" : "var(--cyan-soft)"};color:${p.role === "IMPOSTER" ? "#FF6B86" : "#67E8F9"};">
-                  ${p.role === "IMPOSTER" ? "غدّار 🔪" : "محقق 🕵️"} • ${p.alive ? "عايش" : "طار 💀"}
+                <span class="pill ${p.role === "IMPOSTER" ? "pill-red" : "pill-cyan"}">
+                  ${p.role === "IMPOSTER" ? "غدّار" : "محقق"} • ${p.alive ? "صامد" : "مُقصى"}
                 </span>
               </div>
             `).join("")}
@@ -722,77 +766,73 @@ window.Kameen = window.Kameen || {};
         </div>
 
         <div class="card">
-          <div style="font-weight:900;font-size:13px;margin-bottom:8px;">💬 تصفية الحسابات</div>
+          <div class="eyebrow" style="margin-bottom:8px;">دردشة ما بعد الجيم</div>
           <div id="post-chat-list" class="chat-box" style="margin-bottom:8px;">${buildPostChatHtml(vis.postChat)}</div>
           <div style="display:flex;gap:6px;">
             <input id="post-chat-inp" class="input" style="padding:9px 12px;font-size:12px;" type="text"
-              placeholder="قول لصحابك إيه اللي حصل..."
-              onkeydown="if(event.key==='Enter')onSendPostChat()" />
-            <button class="btn btn-primary btn-sm" style="padding:0 14px;" onclick="onSendPostChat()">ابعت</button>
+              placeholder="اكتب تعليقك..." onkeydown="if(event.key==='Enter')onSendPostChat()" />
+            <button class="btn btn-primary btn-sm" onclick="onSendPostChat()">إرسال</button>
           </div>
         </div>
 
         <div class="grid-2">
-          <button class="btn btn-primary" onclick="exitGameToCreate()">جيم تاني 🔥</button>
-          <button class="btn btn-outline" onclick="exitGameToLanding()">الرئيسية 🏠</button>
+          <button class="btn btn-primary" onclick="exitGameToCreate()">جيم جديد</button>
+          <button class="btn btn-outline" onclick="exitGameToLanding()">الرئيسية</button>
         </div>
       `;
       return;
     }
 
+    // --- 5) PROFILE ---
     if (st.route === "profile") {
       const u = st.user;
       const rate = u.matchesPlayed ? Math.round((u.matchesWon / u.matchesPlayed) * 100) : 0;
       root.innerHTML = `
         <div class="card" style="text-align:center;">
           <img src="${K.CONFIG.LOGO_PATH}" class="brand-logo-lg" alt="كمين" />
-          <div style="font-weight:900;font-size:21px;margin-top:8px;">${esc(u.name)}</div>
-          <div style="font-size:11px;color:var(--muted);font-weight:700;">عميل ميداني معتمد في كمين</div>
+          <div style="font-weight:900;font-size:20px;margin-top:8px;">${esc(u.name)}</div>
+          <div class="eyebrow" style="margin-top:2px;">FIELD AGENT PROFILE</div>
           <div class="grid-3" style="margin-top:16px;">
-            <div style="background:var(--surface-2);padding:12px 6px;border-radius:14px;">
-              <div style="font-size:20px;font-weight:900;color:#FDA4AF;">${u.matchesPlayed}</div>
-              <div style="font-size:11px;color:var(--muted);font-weight:700;">مباريات</div>
-            </div>
-            <div style="background:var(--surface-2);padding:12px 6px;border-radius:14px;">
-              <div style="font-size:20px;font-weight:900;color:var(--green);">${rate}%</div>
-              <div style="font-size:11px;color:var(--muted);font-weight:700;">نسبة الفوز</div>
-            </div>
-            <div style="background:var(--surface-2);padding:12px 6px;border-radius:14px;">
-              <div style="font-size:20px;font-weight:900;color:var(--gold);">${u.missionsCompleted}</div>
-              <div style="font-size:11px;color:var(--muted);font-weight:700;">مهام</div>
-            </div>
+            <div class="tele-cell"><div class="tele-val tnum">${u.matchesPlayed}</div><div class="tele-lbl">مباريات</div></div>
+            <div class="tele-cell"><div class="tele-val tnum" style="color:var(--emerald);">${rate}%</div><div class="tele-lbl">نسبة الفوز</div></div>
+            <div class="tele-cell"><div class="tele-val tnum" style="color:var(--amber);">${u.missionsCompleted}</div><div class="tele-lbl">مهام</div></div>
           </div>
         </div>
       `;
       return;
     }
 
+    // --- 6) HOW TO PLAY ---
     if (st.route === "howto") {
-      root.innerHTML = `
-        <div class="card" style="border-color:rgba(0,212,255,0.35);">
-          <div style="font-weight:900;font-size:15px;color:#67E8F9;margin-bottom:6px;">🕵️ دور المحقق (أزرق سماوي)</div>
-          <div style="font-size:12.5px;font-weight:700;line-height:1.85;color:var(--text);">
-            • خلّص مهامك في معالم الحي عشان تملى <b>شريط القضية 100%</b> وتكسب الجيم.<br/>
-            • معاك أدواتك الخاصة: <b>درع حماية</b>، <b>مسح معالم الخريطة</b>، <b>تلميح تقيل عن الغدّار</b>، وزرار <b>قفشة</b> (بس لو اتهمت بريء بتخسر 25ن ومكانك بيتكشف!).
-          </div>
-        </div>
-        <div class="card" style="border-color:rgba(255,46,84,0.38);">
-          <div style="font-weight:900;font-size:15px;color:#FF6B86;margin-bottom:6px;">🔪 دور الغدّار (أحمر ناري)</div>
-          <div style="font-size:12.5px;font-weight:700;line-height:1.85;color:var(--text);">
-            • هدفك تصفّي كل المحققين قبل ما يكملوا القضية أو يكتشفوك.<br/>
-            • معاك ألاعيبك الخاصة: <b>رادار الصيد</b> (يجيبلك أقرب ضحية)، <b>إشارة حمرا وهمية</b>، <b>تسريب إشاعة مضللة</b>، و<b>تكتيم المحلل والرادار</b> 75 ثانية!
-          </div>
-        </div>
-        <div class="card">
-          <div style="font-weight:900;font-size:14px;color:#FDE68A;margin-bottom:6px;">🤖 المحلل النفسي والسمسار والزون</div>
-          <div style="font-size:12.5px;font-weight:700;line-height:1.85;">
-            • الزون بتصغر 25% كل 3 دقايق واللي يفضل برّاها 20ث بيطير.<br/>
-            • المحلل النفسي بيراقب الجري والكمبرة ويدي تلميحات بالمعالم الحقيقية ع الخريطة.<br/>
-            • شنط الإمداد الذهبية وصفقة السمسار بيقلبوا الموازين طول الجيم!
-          </div>
-        </div>
-      `;
+      root.innerHTML = buildHowToHtml();
     }
+  }
+
+  function buildHowToHtml() {
+    return `
+      <div class="card" style="border-right:3px solid var(--crimson);">
+        <div class="eyebrow" style="color:var(--crimson);margin-bottom:4px;">فكرة اللعبة</div>
+        <div style="font-size:13px;font-weight:700;line-height:1.8;">
+          الكل بيدخل في غرفة واحدة، ومع بداية الجيم النظام بيختار الغدّارين عشوائياً والباقي بيكونوا محققين.
+          الرادار بيظهر قراءة لمواقع جميع اللاعبين وتتجدد تلقائياً كل دقيقتين (أو حسب التوقيت اللي بتحدده من الإعدادات).
+        </div>
+      </div>
+      <div class="card" style="border-right:3px solid var(--cyan);">
+        <div class="eyebrow" style="color:var(--cyan);margin-bottom:4px;">دور المحقق</div>
+        <div style="font-size:12.5px;font-weight:700;line-height:1.8;color:var(--muted);">
+          • نفّذ المهام الميدانية لملء شريط القضية 100% والفوز.<br/>
+          • استخدم درع الحماية، مسح المعالم، والاتهام المباشر عند التأكد.<br/>
+          • نبض القلب بيحذرك تلقائياً لما الغدّار يقرّب منك بدون كشف اسمه.
+        </div>
+      </div>
+      <div class="card" style="border-right:3px solid var(--crimson);">
+        <div class="eyebrow" style="color:var(--crimson);margin-bottom:4px;">دور الغدّار</div>
+        <div style="font-size:12.5px;font-weight:700;line-height:1.8;color:var(--muted);">
+          • صفّي المحققين من مسافة قريبة قبل إغلاق القضية أو كشفك في الاجتماع.<br/>
+          • معاك ألاعيب خاصة: رادار الصيد، الإشارة الوهمية، تسريب الإشاعات، والتشويش الإلكتروني لإيقاف الرادار والمحلل.
+        </div>
+      </div>
+    `;
   }
 
   function buildMissionsCardsHtml(vis) {
@@ -803,23 +843,23 @@ window.Kameen = window.Kameen || {};
       const dir = K.Geo.getArabicDirection(vis.self.coords, { lat: m.poi.lat, lng: m.poi.lng });
       const inRange = dist <= C.MISSION_RANGE_M + 5;
       return `
-        <div class="card" style="padding:13px;border-color:${m.status === "in_progress" ? "var(--role-accent)" : "var(--border)"};">
+        <div class="card" style="padding:12px;border-right:3px solid ${m.status === "completed" ? "var(--emerald)" : (m.status === "in_progress" ? "var(--amber)" : "var(--border-strong)")};">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
-            <div style="font-weight:900;font-size:14px;">${esc(m.title)}</div>
-            <span class="pill" style="background:var(--gold-soft);color:#FDE68A;">+${m.rewardPoints}ن</span>
+            <div style="font-weight:900;font-size:13.5px;">${esc(m.title)}</div>
+            <span class="pill pill-amber tnum">+${m.rewardPoints}ن</span>
           </div>
-          <p style="font-size:11.5px;color:var(--muted);font-weight:700;margin:5px 0 7px;">${esc(m.description)}</p>
-          <div style="font-size:11px;font-weight:800;color:${isImp ? "#FDA4AF" : "#67E8F9"};margin-bottom:9px;">
-            📍 ${esc(m.poi.name)} • ${dist}م (${dir})
+          <p style="font-size:11.5px;color:var(--muted);font-weight:600;margin:4px 0 6px;">${esc(m.description)}</p>
+          <div style="font-size:11px;font-weight:800;color:${isImp ? "#FF6B7D" : "var(--cyan)"};margin-bottom:8px;">
+            ${esc(m.poi.name)} • ${dist}م (${dir})
           </div>
           ${m.status === "completed"
-            ? `<div class="pill" style="background:var(--green-soft);color:#6EE7B7;width:100%;justify-content:center;padding:8px;">✅ مكتملة ومُوثّقة!</div>`
+            ? `<div class="pill pill-green" style="width:100%;justify-content:center;padding:7px;">مكتملة</div>`
             : m.status === "pending"
-              ? `<button class="btn ${isImp ? "btn-primary" : "btn-cyan"} btn-sm" style="width:100%;" onclick="onStartMission('${m.id}')">ابدأ وافتح المسار ع الخريطة 🎯</button>`
+              ? `<button class="btn ${isImp ? "btn-crimson-outline" : "btn-cyan"} btn-sm" style="width:100%;" onclick="onStartMission('${m.id}')">تحديد المسار على الرادار</button>`
               : `<div class="grid-2">
-                  <button class="btn btn-outline btn-sm" onclick="onCloseModal();Kameen.Map.recenter()">شوف المسار 🗺️</button>
+                  <button class="btn btn-outline btn-sm" onclick="onCloseModal();Kameen.Map.recenter()">عرض المسار</button>
                   <button class="btn btn-success btn-sm" ${inRange ? "" : "disabled"} onclick="openCameraForMission('${m.id}')">
-                    ${inRange ? "صوّر الإثبات 📸" : `قرّب (${dist}م)`}
+                    ${inRange ? "توثيق بالكاميرا" : `اقترب (${dist}م)`}
                   </button>
                 </div>`
           }
@@ -836,15 +876,15 @@ window.Kameen = window.Kameen || {};
   }
 
   function buildMeetingIntelHtml(vis) {
-    if (!vis.aiReports.length) return `<div style="font-size:11px;color:var(--muted);">المحلل لسه مبعتش تقارير في الجيم ده.</div>`;
+    if (!vis.aiReports.length) return `<div style="font-size:11.5px;color:var(--muted);">لا توجد تقارير بعد.</div>`;
     return [...vis.aiReports].reverse().map((r) => `<div class="intel-item">${esc(r.summaryText)}</div>`).join("");
   }
 
   function buildMeetingChatHtml(m) {
-    if (!m.chat.length) return `<div style="font-size:11px;color:var(--muted);">ابدأ الكلام...</div>`;
+    if (!m.chat.length) return `<div style="font-size:11.5px;color:var(--muted);">ابدأ النقاش...</div>`;
     return m.chat.map((c) => `
       <div class="chat-msg">
-        <b style="color:${c.senderId === "system" ? "#FF6B86" : "#FDE68A"};">${esc(c.senderName)}:</b>
+        <b style="color:${c.senderId === "system" ? "var(--crimson)" : "var(--amber)"};">${esc(c.senderName)}:</b>
         <span>${esc(c.text)}</span>
       </div>
     `).join("");
@@ -854,29 +894,21 @@ window.Kameen = window.Kameen || {};
     const m = vis.activeMeeting;
     const myVote = m.votes[vis.self.id];
     const living = vis.players.filter((p) => p.alive);
-    const votedCount = Object.keys(m.votes).length;
     return `
       <div style="font-size:11px;color:var(--muted);font-weight:700;margin-bottom:8px;">
-        اللي صوّتوا: ${votedCount} / ${living.length} ${myVote ? " • ✅ إنت صوّت خلاص" : ""}
+        الأصوات المسجلة: ${Object.keys(m.votes).length} / ${living.length} ${myVote ? "• تم تسجيل صوتك" : ""}
       </div>
       <div class="grid-2">
-        ${living.map((p) => {
-          const hasVoted = Boolean(m.votes[p.id]);
-          const selected = myVote === p.id;
-          return `
-            <button class="btn ${selected ? "btn-danger" : "btn-outline"}" style="justify-content:flex-start;padding:8px 10px;" ${!vis.self.alive ? "disabled" : ""}
-              onclick="onCastVote('${p.id}')">
-              ${avatarBadge(p.name)}
-              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.name)}</span>
-              ${hasVoted ? '<span style="font-size:10px;margin-right:auto;">✅</span>' : ""}
-            </button>
-          `;
-        }).join("")}
+        ${living.map((p) => `
+          <button class="btn ${myVote === p.id ? "btn-danger" : "btn-outline"} btn-sm" style="justify-content:flex-start;" ${!vis.self.alive ? "disabled" : ""}
+            onclick="onCastVote('${p.id}')">
+            ${avatarBadge(p.name)}
+            <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.name)}</span>
+          </button>
+        `).join("")}
       </div>
-      <button class="btn ${myVote === "SKIP" ? "btn-warning" : "btn-soft"}" style="width:100%;margin-top:8px;" ${!vis.self.alive ? "disabled" : ""}
-        onclick="onCastVote('SKIP')">
-        تخطي التصويت (مفيش دليل كفاية) ⏭️
-      </button>
+      <button class="btn ${myVote === "SKIP" ? "btn-warning" : "btn-outline"} btn-sm" style="width:100%;margin-top:8px;" ${!vis.self.alive ? "disabled" : ""}
+        onclick="onCastVote('SKIP')">تخطي التصويت</button>
     `;
   }
 
@@ -885,9 +917,8 @@ window.Kameen = window.Kameen || {};
     const vis = K.state.engine.getVisibleStateForPlayer(K.state.user.id);
     const m = vis.activeMeeting;
     if (!m) return;
-    const rem = Math.max(0, Math.ceil((m.endsAtMs - vis.nowMs) / 1000));
     const tEl = document.getElementById("meeting-timer-badge");
-    if (tEl) tEl.textContent = rem + "ث";
+    if (tEl) tEl.textContent = Math.max(0, Math.ceil((m.endsAtMs - vis.nowMs) / 1000)) + "ث";
     const cEl = document.getElementById("meeting-chat-feed");
     if (cEl && cEl.dataset.len !== String(m.chat.length)) {
       cEl.dataset.len = String(m.chat.length);
@@ -899,47 +930,37 @@ window.Kameen = window.Kameen || {};
   }
 
   function buildPostChatHtml(list) {
-    if (!list || !list.length) return `<span style="font-size:11px;color:var(--muted);">محدش كتب حاجة لسه.. ابدأ الضحك!</span>`;
-    return list.map((c) => `<div class="chat-msg"><b style="color:#FDE68A;">${esc(c.sender)}:</b> ${esc(c.text)}</div>`).join("");
+    if (!list || !list.length) return `<span style="font-size:11.5px;color:var(--muted);">ابدأ الكلام...</span>`;
+    return list.map((c) => `<div class="chat-msg"><b style="color:var(--amber);">${esc(c.sender)}:</b> ${esc(c.text)}</div>`).join("");
   }
 
   function updateResultChatDOM() {
     if (!K.state.engine) return;
     const vis = K.state.engine.getVisibleStateForPlayer(K.state.user.id);
     const el = document.getElementById("post-chat-list");
-    if (el) {
-      el.innerHTML = buildPostChatHtml(vis.postChat);
-      el.scrollTop = el.scrollHeight;
-    }
+    if (el) { el.innerHTML = buildPostChatHtml(vis.postChat); el.scrollTop = el.scrollHeight; }
     if (vis.aiMatchRecap) {
       const box = document.getElementById("ai-recap-box");
-      if (box) {
-        box.textContent = "🤖 تعليق المحلل: " + vis.aiMatchRecap;
-        box.classList.remove("hidden");
-      }
+      if (box) { box.textContent = "تعليق المحلل: " + vis.aiMatchRecap; box.classList.remove("hidden"); }
     }
   }
 
   function updateCameraModalStatus() {
     const st = K.state;
     const vEl = document.getElementById("cam-verdict-box");
-    if (vEl) {
-      vEl.textContent = st.videoVerdict || "";
-      vEl.classList.toggle("hidden", !st.videoVerdict);
-    }
+    if (vEl) { vEl.textContent = st.videoVerdict || ""; vEl.classList.toggle("hidden", !st.videoVerdict); }
     const lbl = document.getElementById("cam-upload-lbl");
-    if (lbl) lbl.textContent = st.videoAnalyzing ? "⏳ الذكاء الاصطناعي بيفحص اللقطة..." : "📸 صوّر صورة أو فيديو سريع";
+    if (lbl) lbl.textContent = st.videoAnalyzing ? "جاري فحص الصورة بالذكاء الاصطناعي..." : "التقط صورة أو فيديو سريع";
   }
 
-  // Helper to wrap native slide-up bottom sheet
   function bottomSheetHtml(title, bodyHtml, accentColor = "var(--text)") {
     return `
       <div class="sheet-backdrop" onclick="if(event.target===this)onCloseModal()">
         <div class="bottom-sheet">
           <div class="sheet-handle"></div>
           <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-weight:900;font-size:16px;color:${accentColor};">${title}</span>
-            <button class="icon-btn" style="width:32px;height:32px;font-size:13px;" onclick="onCloseModal()">✖</button>
+            <span style="font-weight:900;font-size:15.5px;color:${accentColor};">${title}</span>
+            <button class="icon-btn" style="width:32px;height:32px;" onclick="onCloseModal()">${ICONS.close}</button>
           </div>
           <div class="sheet-body">${bodyHtml}</div>
         </div>
@@ -947,95 +968,133 @@ window.Kameen = window.Kameen || {};
     `;
   }
 
-  function buildPrecisionSheetBody() {
+  // =========================================================================
+  // ☰ UNIFIED GAME SETTINGS DRAWER (Accessible Everywhere via ☰ / Sliders!)
+  // =========================================================================
+  function buildGameSettingsBody() {
     const st = K.state;
+    const inMatch = Boolean(st.engine && (st.route === "game" || st.route === "simulation"));
+    const inLobby = Boolean(st.lobby && st.route === "lobby");
+    const canEditGameRules = !inMatch
+      ? (!inLobby || st.lobby.hostId === st.user.id)
+      : K.App.isMatchHost();
+
+    const cfg = inMatch
+      ? {
+          revealIntervalSec: st.engine.getSnapshot().revealIntervalSec || 120,
+          revealMode: st.engine.getSnapshot().revealMode || "ping",
+          duration: Math.round(st.engine.getSnapshot().matchDurationMs / 60000),
+          spreadSeconds: st.createForm.spreadSeconds,
+          imposters: st.createForm.imposters,
+          radius: st.engine.getSnapshot().zone.currentRadiusMeters,
+        }
+      : (inLobby ? st.lobby : st.createForm);
+
     const t = K.Location.getTelemetry();
-    const fused = t.fusedAcc !== null ? t.fusedAcc : null;
-    const raw = t.rawAcc !== null ? t.rawAcc : null;
-
-    let pct = 15, barColor = "#FF2E54", verdict = "جاري لقط الأقمار... اخرج لمكان مفتوح للسما";
-    if (fused !== null) {
-      if (fused <= 4.5) {
-        pct = 96; barColor = "#10B981";
-        verdict = "🎯 قفل فائق (هدف 3 متر متحقق) — جاهز للعب بالملي!";
-      } else if (fused <= 10) {
-        pct = 78; barColor = "#00D4FF";
-        verdict = "✅ دقة ممتازة للشارع — اثبت 5 ثواني عشان ZUPT يقفلها أكتر!";
-      } else if (fused <= 24) {
-        pct = 50; barColor = "#FFB020";
-        verdict = "⚠️ دقة متوسطة — ابعد عن العمارات أو اضبط مكانك بالمعايرة اليدوية";
-      } else {
-        pct = 20; barColor = "#FF2E54";
-        verdict = "🏠 إنت جوه مبنى مقفول (السقف بيحجب الأقمار) — اخرج للشارع أو البلكونة!";
-      }
-    }
-
+    const hasKey = Boolean((st.groqKey || "").trim());
     const canAnchor = st.route === "create" || st.route === "game" || st.route === "simulation";
+
     return `
-      <div class="precision-meter-card">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div style="font-size:11px;color:var(--muted);font-weight:800;">HyperLock 3M التلقائي (GPS + بوصلة + خطوات) ⚡</div>
-            <div style="font-size:26px;font-weight:900;color:${barColor};line-height:1.15;">
-              ${fused !== null ? "±" + fused.toFixed(1) + " متر" : "جاري المسح..."}
+      <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+        <div class="eyebrow" style="color:var(--crimson);">إعدادات رصد اللاعبين على الرادار</div>
+        <div>
+          <div style="font-size:11.5px;font-weight:800;margin-bottom:6px;">توقيت تحديث قراءة اللاعبين (كل كام دقيقة):</div>
+          <div class="grid-5">
+            ${[30, 60, 120, 180, 300].map((sec) => `
+              <button class="seg-btn tnum ${cfg.revealIntervalSec === sec ? "active" : ""}" ${canEditGameRules ? "" : "disabled"}
+                onclick="onUpdateGameSetting('revealIntervalSec', ${sec})">
+                ${sec < 60 ? sec + "ث" : (sec / 60) + "د"}
+              </button>
+            `).join("")}
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11.5px;font-weight:800;margin-bottom:6px;">نمط ظهور اللاعبين:</div>
+          <div class="grid-2">
+            <button class="seg-btn ${cfg.revealMode !== "live" ? "active" : ""}" ${canEditGameRules ? "" : "disabled"}
+              onclick="onUpdateGameSetting('revealMode', 'ping')">قراءة ثابتة تتجدد</button>
+            <button class="seg-btn ${cfg.revealMode === "live" ? "active" : ""}" ${canEditGameRules ? "" : "disabled"}
+              onclick="onUpdateGameSetting('revealMode', 'live')">تتبع لايف 15ث</button>
+          </div>
+        </div>
+      </div>
+
+      ${!inMatch ? `
+        <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+          <div class="eyebrow">إعدادات الجيم والزون</div>
+          <div class="grid-3">
+            <div>
+              <div style="font-size:10.5px;color:var(--muted);font-weight:800;margin-bottom:4px;">المدة</div>
+              <div class="grid-2" style="gap:4px;">
+                ${[10, 15, 20, 30].map((d) => `<button class="seg-btn tnum ${cfg.duration === d ? "active" : ""}" ${canEditGameRules ? "" : "disabled"} onclick="onUpdateGameSetting('duration', ${d})">${d}د</button>`).join("")}
+              </div>
+            </div>
+            <div>
+              <div style="font-size:10.5px;color:var(--muted);font-weight:800;margin-bottom:4px;">التشتيت</div>
+              <div class="grid-2" style="gap:4px;">
+                ${[15, 30, 60, 120].map((s) => `<button class="seg-btn tnum ${cfg.spreadSeconds === s ? "active" : ""}" ${canEditGameRules ? "" : "disabled"} onclick="onUpdateGameSetting('spreadSeconds', ${s})">${s < 60 ? s + "ث" : (s / 60) + "د"}</button>`).join("")}
+              </div>
+            </div>
+            <div>
+              <div style="font-size:10.5px;color:var(--muted);font-weight:800;margin-bottom:4px;">الغدّارين</div>
+              <div class="grid-3" style="gap:4px;">
+                ${[1, 2, 3].map((n) => `<button class="seg-btn tnum ${cfg.imposters === n ? "active" : ""}" ${canEditGameRules ? "" : "disabled"} onclick="onUpdateGameSetting('imposters', ${n})">${n}</button>`).join("")}
+              </div>
             </div>
           </div>
-          <span class="pill" style="background:var(--surface-2);color:var(--text);">
-            ${esc(t.motionMode)}
-          </span>
         </div>
-        <div class="precision-bar-track">
-          <div class="precision-bar-fill" style="width:${pct}%;background:${barColor};"></div>
-        </div>
-        <div style="font-size:11.5px;font-weight:800;color:var(--text);">${verdict}</div>
-      </div>
+      ` : ""}
 
-      <div class="tele-grid">
-        <div class="tele-cell">
-          <div class="tele-lbl">دقة الأقمار الخام (GNSS)</div>
-          <div class="tele-val">${raw !== null ? "±" + raw + "م" : "—"}</div>
+      <div class="card" style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="eyebrow">نظام الموقع التلقائي (HYPERLOCK 3M)</span>
+          <span class="pill pill-green">تلقائي</span>
         </div>
-        <div class="tele-cell">
-          <div class="tele-lbl">حساس الخطوات (PDR)</div>
-          <div class="tele-val" style="color:${t.motionActive ? "#6EE7B7" : "#FDE68A"};">${t.motionActive ? t.stepsTotal + " خطوة 👣" : "محتاج تفعيل"}</div>
+        <div class="tele-grid">
+          <div class="tele-cell">
+            <div class="tele-lbl">الدقة الحالية</div>
+            <div class="tele-val tnum">${t.fusedAcc !== null ? "±" + t.fusedAcc.toFixed(1) + "م" : "جاري المسح"}</div>
+          </div>
+          <div class="tele-cell">
+            <div class="tele-lbl">البوصلة والخطوات</div>
+            <div class="tele-val">${t.headingDeg !== null ? Math.round(t.headingDeg) + "° " + esc(t.headingArabic) : "تلقائي"} • ${t.stepsTotal}</div>
+          </div>
         </div>
-        <div class="tele-cell">
-          <div class="tele-lbl">البوصلة والاتجاه</div>
-          <div class="tele-val">${t.headingDeg !== null ? Math.round(t.headingDeg) + "° " + esc(t.headingArabic) : "—"}</div>
-        </div>
-        <div class="tele-cell">
-          <div class="tele-lbl">قفزات مرفوضة (فلتر)</div>
-          <div class="tele-val">${t.rejectedOutliers} قفزة / ${t.acceptedFixes} قراءة</div>
-        </div>
-      </div>
-
-      <div style="display:flex;flex-direction:column;gap:7px;">
         ${canAnchor ? `
-          <button class="btn btn-warning" style="width:100%;" onclick="onStartAnchorCalibration()">
-            🎯 اضبط مكاني بالظبط ع الخريطة ${t.biasActive ? `(مُعاير ${t.biasMeters}م)` : "(إلغاء الترحيل)"}
-          </button>
-        ` : ""}
-        ${t.biasActive ? `
-          <button class="btn btn-outline btn-sm" style="width:100%;" onclick="onClearAnchorCalibration()">
-            إلغاء الضبط اليدوي (${t.biasMeters}م)
-          </button>
-        ` : ""}
-        <div class="grid-2">
-          <button class="btn btn-cyan btn-sm" onclick="onEnableCompass()">🧭👣 فعّل الحساسات</button>
-          <button class="btn btn-primary btn-sm" onclick="onRecalibrateGps()">📡 معايرة فائقة</button>
-        </div>
+          <div class="grid-2">
+            <button class="btn btn-outline btn-xs" onclick="onStartAnchorCalibration()">ضبط مكاني يدوياً</button>
+            <button class="btn btn-outline btn-xs" onclick="Kameen.SFX.toggle();Kameen.UI.renderModal()">الصوت: ${K.SFX.muted ? "مكتوم" : "مفعّل"}</button>
+          </div>
+        ` : `
+          <button class="btn btn-outline btn-xs" onclick="Kameen.SFX.toggle();Kameen.UI.renderModal()">الصوت: ${K.SFX.muted ? "مكتوم" : "مفعّل"}</button>
+        `}
       </div>
+
+      <div class="card" style="display:flex;flex-direction:column;gap:6px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span class="eyebrow">مفتاح الذكاء الاصطناعي (GROQ AI)</span>
+          <span class="pill ${hasKey ? "pill-green" : "pill-amber"}">${hasKey ? "متصل" : "غير مضاف"}</span>
+        </div>
+        <input class="input" style="padding:9px 11px;font-size:12px;direction:ltr;" type="password"
+          placeholder="gsk_..."
+          value="${esc(st.groqKey)}"
+          oninput="Kameen.state.groqKey=this.value;try{localStorage.setItem('kameen_groq_key',this.value)}catch{}" />
+      </div>
+
+      ${inMatch ? `
+        <button class="btn btn-crimson-outline btn-sm" style="width:100%;" onclick="exitGameToLanding()">مغادرة الجيم والعودة للرئيسية</button>
+      ` : ""}
     `;
   }
 
   function updatePrecisionSheetDynamic() {
-    if (K.state.modal !== "precision_hud") return;
-    const el = document.getElementById("precision-sheet-body");
-    if (el) el.innerHTML = buildPrecisionSheetBody();
+    if (K.state.modal !== "game_settings") return;
+    // Lightweight: no full re-render while typing in password input
+    if (K.isUserTyping()) return;
   }
 
   // =========================================================================
-  // NATIVE BOTTOM SHEETS & FULL-SCREEN ROLE CARDS
+  // MODALS & SLIDE-UP SHEETS
   // =========================================================================
   function renderModal() {
     const st = K.state;
@@ -1043,36 +1102,40 @@ window.Kameen = window.Kameen || {};
     if (!mr) return;
     const C = K.GAME_CONSTANTS;
 
-    // 1. 3D Secret Role Reveal Card (Center Focus)
+    // 1. Secret Role Reveal Card
     if ((st.route === "game" || st.route === "simulation") && !st.roleRevealed && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+      if (vis.self.role === "SPECTATOR") {
+        st.roleRevealed = true;
+        mr.innerHTML = "";
+        return;
+      }
       const isImp = vis.self.role === "IMPOSTER";
       mr.innerHTML = `
         <div class="center-modal-backdrop">
           ${!st.roleFlipped ? `
             <div class="card" style="max-width:340px;width:100%;text-align:center;border-color:var(--crimson);">
               <img src="${K.CONFIG.LOGO_PATH}" class="brand-logo-lg" alt="كمين" />
-              <div style="font-size:21px;font-weight:900;margin-top:8px;">كارت الدور السري 🃏</div>
-              <p style="font-size:13px;color:var(--muted);font-weight:700;">اتأكد محدش بيبص في موبايلك واضغط عشان تعرف إنت مين!</p>
-              <button class="btn btn-primary" style="width:100%;margin-top:12px;padding:13px;" onclick="onFlipRoleCard()">اكشف دوري 👀</button>
+              <div class="eyebrow" style="margin-top:10px;color:var(--crimson);">SECRET ROLE</div>
+              <div style="font-size:21px;font-weight:900;margin-top:2px;">بطاقة الدور السري</div>
+              <p style="font-size:12.5px;color:var(--muted);font-weight:600;">تأكد ألا يرى أحد شاشتك ثم اضغط لكشف دورك</p>
+              <button class="btn btn-primary" style="width:100%;margin-top:10px;" onclick="onFlipRoleCard()">كشف الدور</button>
             </div>
           ` : `
-            <div class="role-card-glow ${isImp ? "imposter" : "investigator"}" style="max-width:350px;width:100%;">
-              <div style="font-size:54px;">${isImp ? "😈🔪" : "🕵️‍♂️🔍"}</div>
-              <div style="font-size:27px;font-weight:900;color:${isImp ? "#FF6B86" : "#67E8F9"};margin-top:4px;">
-                ${isImp ? "إنت الغدّار" : "إنت المحقق"}
+            <div class="role-card-glow ${isImp ? "imposter" : "investigator"}" style="max-width:340px;width:100%;">
+              <div class="eyebrow" style="color:${isImp ? "var(--crimson)" : "var(--cyan)"};">${isImp ? "IMPOSTER" : "INVESTIGATOR"}</div>
+              <div style="font-size:28px;font-weight:900;margin-top:4px;color:${isImp ? "#FF6B7D" : "#7DD3FC"};">
+                ${isImp ? "أنت الغدّار" : "أنت المحقق"}
               </div>
-              <p style="font-size:12.5px;color:var(--text);font-weight:700;line-height:1.75;margin:10px 0;">
+              <p style="font-size:12.5px;color:var(--muted);font-weight:600;line-height:1.7;margin:10px 0;">
                 ${isImp
-                  ? "صفحتك الحمرا فيها رادار صيد وألاعيب تشويش وتكتيم للمحلل! صفّيهم واحد ورا التاني بس امشي طبيعي!"
-                  : "صفحتك السماوية فيها شريط القضية وأدوات التحقيق! خلّص المهام، راقب المحلل، واطرد الغدّار!"}
+                  ? "صفّي المحققين من مسافة قريبة واستخدم التشويش والإشارات الوهمية لتضليلهم."
+                  : "أنهِ مهامك لإغلاق القضية 100%، راقب قراءة الرادار وتقارير المحلل، واطرد الغدّار."}
               </p>
               ${vis.imposterPartners.length ? `
-                <div class="pill" style="background:var(--crimson-soft);color:#FF6B86;margin-bottom:10px;">
-                  شريكك الغدّار: ${esc(vis.imposterPartners.map((x) => x.name).join("، "))}
-                </div>
+                <div class="pill pill-red" style="margin-bottom:10px;">شريكك: ${esc(vis.imposterPartners.map((x) => x.name).join("، "))}</div>
               ` : ""}
-              <button class="btn ${isImp ? "btn-danger" : "btn-cyan"}" style="width:100%;margin-top:8px;padding:13px;" onclick="onAcceptRoleCard()">يلا نبدأ التشتيت! 🔥</button>
+              <button class="btn ${isImp ? "btn-primary" : "btn-cyan"}" style="width:100%;margin-top:6px;" onclick="onAcceptRoleCard()">ابدأ التشتيت</button>
             </div>
           `}
         </div>
@@ -1080,276 +1143,216 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // 2. Eliminated Alert (Center Focus)
+    // 2. Eliminated Modal
     if (st.modal === "eliminated" && st.engine) {
       const self = st.engine.getVisibleStateForPlayer(st.user.id).self;
       const reasonMap = {
-        KILLED_BY_IMPOSTER: "الغدّار فنشّك من ضهرك يا عيني! 🔪",
-        OUTSIDE_ZONE: "الزون كلتك عشان اتأخرت برّاها! ⭕",
-        EJECTED_IN_MEETING: "صحابك لبّسوك التهمة وطردوك في التصويت! 🗳️",
-        CAUGHT_BY_SPOKEN_NAME: "محقق قفشك بالاسم وطيّرك! 🗣️",
+        KILLED_BY_IMPOSTER: "تم إقصاؤك بواسطة الغدّار.",
+        OUTSIDE_ZONE: "تم إقصاؤك لبقائك خارج الزون.",
+        EJECTED_IN_MEETING: "تم التصويت على طردك في الاجتماع.",
+        CAUGHT_BY_SPOKEN_NAME: "تم كشفك بالاتهام المباشر.",
       };
       mr.innerHTML = `
         <div class="center-modal-backdrop">
-          <div class="card" style="max-width:340px;width:100%;text-align:center;border-color:var(--crimson);">
-            <div style="font-size:48px;">💀👻</div>
-            <div style="font-size:22px;font-weight:900;color:#FF6B86;">خرجت من الجيم!</div>
-            <p style="font-size:13px;font-weight:700;color:var(--text);margin:10px 0;">${reasonMap[self.eliminationReason] || "تم إقصاؤك من الميدان!"}</p>
-            <button class="btn btn-outline" style="width:100%;margin-top:8px;" onclick="onCloseModal()">ادخل وضع الشبح 👻</button>
+          <div class="card" style="max-width:330px;width:100%;text-align:center;border-color:var(--crimson);">
+            <div class="eyebrow" style="color:var(--crimson);">ELIMINATED</div>
+            <div style="font-size:22px;font-weight:900;margin-top:4px;">خرجت من الجيم</div>
+            <p style="font-size:13px;color:var(--muted);font-weight:700;margin:10px 0;">${reasonMap[self.eliminationReason] || "تم إقصاؤك من الميدان."}</p>
+            <button class="btn btn-outline" style="width:100%;" onclick="onCloseModal()">دخول وضع المشاهد</button>
           </div>
         </div>
       `;
       return;
     }
 
-    // 3. Missions / Cover Alibis Bottom Sheet (Role-Separated!)
+    // 3. Game Settings Drawer (☰ / Sliders)
+    if (st.modal === "game_settings") {
+      mr.innerHTML = bottomSheetHtml("إعدادات اللعبة والرادار", buildGameSettingsBody());
+      return;
+    }
+
+    // 4. How-To Sheet (from Lobby)
+    if (st.modal === "howto_sheet") {
+      mr.innerHTML = bottomSheetHtml("طريقة اللعب", buildHowToHtml());
+      return;
+    }
+
+    // 5. Missions Sheet
     if (st.modal === "missions_sheet" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const isImp = vis.self.role === "IMPOSTER";
-      const subtitle = isImp
-        ? `<div style="font-size:11.5px;color:var(--muted);font-weight:700;">مهام تمويه اختيارية بتديك نقط لألاعيبك وبتبعد الشكوك عنك.</div>`
-        : `<div style="font-size:11.5px;color:#67E8F9;font-weight:800;">🔍 تقدم القضية: ${vis.investigationDone} / ${vis.investigationGoal} — لو وصلت 100% بتكسبوا الجيم!</div>`;
+      const sub = isImp
+        ? `<div style="font-size:11.5px;color:var(--muted);">مهام تمويه اختيارية تمنحك نقاطاً لتشغيل ألاعيبك.</div>`
+        : `<div style="font-size:11.5px;color:var(--cyan);font-weight:800;">تقدم القضية: ${vis.investigationDone} / ${vis.investigationGoal}</div>`;
       mr.innerHTML = bottomSheetHtml(
-        isImp ? "🎭 تمثيليات التمويه (للغدّار)" : "🎯 مهام التحقيق (للمحقق)",
-        `${subtitle}<div id="missions-sheet-list" style="display:flex;flex-direction:column;gap:9px;">${buildMissionsCardsHtml(vis)}</div>`,
-        isImp ? "#FF6B86" : "#67E8F9"
+        isImp ? "مهام التمويه" : "مهام التحقيق",
+        `${sub}<div id="missions-sheet-list" style="display:flex;flex-direction:column;gap:8px;">${buildMissionsCardsHtml(vis)}</div>`,
+        isImp ? "#FF6B7D" : "var(--cyan)"
       );
       return;
     }
 
-    // 4. IMPOSTER-ONLY POWERS BOTTOM SHEET (ألاعيب الغدار فقط)
+    // 6. Imposter Powers
     if (st.modal === "imposter_powers" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const body = `
-        <div style="font-size:11.5px;color:var(--muted);font-weight:700;">رصيدك الحالي: <b style="color:#FDE68A;">${vis.self.points} نقطة</b></div>
+        <div style="font-size:12px;color:var(--muted);font-weight:800;">رصيدك: <b style="color:var(--amber);" class="tnum">${vis.self.points} نقطة</b></div>
         <button class="power-tile" onclick="onUseAbility('STEALTH')" ${vis.self.stealthUsesRemaining <= 0 ? "disabled" : ""}>
-          <div>
-            <div style="font-weight:900;font-size:13.5px;">👻 طاقية الإخفاء</div>
-            <div style="font-size:11px;color:var(--muted);">متبانش على الخريطة في الرادار الجاي</div>
-          </div>
-          <span class="pill" style="background:var(--green-soft);color:#6EE7B7;">مجاني (${vis.self.stealthUsesRemaining})</span>
+          <div><div style="font-weight:900;font-size:13px;">إخفاء من الرصد القادم</div><div style="font-size:11px;color:var(--muted);">لا يظهر موقعك في قراءة الرادار التالية</div></div>
+          <span class="pill pill-green">مجاني (${vis.self.stealthUsesRemaining})</span>
         </button>
-        <button class="power-tile" style="border-color:rgba(255,46,84,0.4);" onclick="onUseAbility('BLOODHOUND')">
-          <div>
-            <div style="font-weight:900;font-size:13.5px;color:#FF6B86;">🩸 رادار الصيد</div>
-            <div style="font-size:11px;color:var(--muted);">يقولك اسم ومكان ومسافة أقرب محقق!</div>
-          </div>
-          <span class="pill" style="background:var(--crimson-soft);color:#FF6B86;">${C.BLOODHOUND_COST}ن</span>
+        <button class="power-tile" onclick="onUseAbility('BLOODHOUND')">
+          <div><div style="font-weight:900;font-size:13px;color:#FF6B7D;">رادار الصيد</div><div style="font-size:11px;color:var(--muted);">يكشف اتجاه ومسافة أقرب محقق</div></div>
+          <span class="pill pill-red tnum">${C.BLOODHOUND_COST}ن</span>
         </button>
         <button class="power-tile" onclick="onUseAbility('PLANT_RUMOR')">
-          <div>
-            <div style="font-weight:900;font-size:13.5px;color:#FDE68A;">🎭 تسريب إشاعة مضللة</div>
-            <div style="font-size:11px;color:var(--muted);">يبعت تقرير وهمي للمحلل يشتّت المحققين</div>
-          </div>
-          <span class="pill" style="background:var(--gold-soft);color:#FDE68A;">${C.PLANT_RUMOR_COST}ن</span>
+          <div><div style="font-weight:900;font-size:13px;">تسريب إشاعة مضللة</div><div style="font-size:11px;color:var(--muted);">إرسال تقرير وهمي للجميع لتشتيتهم</div></div>
+          <span class="pill pill-amber tnum">${C.PLANT_RUMOR_COST}ن</span>
         </button>
         <button class="power-tile" onclick="onUseAbility('DECOY')">
-          <div>
-            <div style="font-weight:900;font-size:13.5px;">📡 إشارة حمرا وهمية</div>
-            <div style="font-size:11px;color:var(--muted);">ترمي نقطة حمرا في حتة تانية 15 ثانية</div>
-          </div>
-          <span class="pill" style="background:var(--crimson-soft);color:#FDA4AF;">${C.DECOY_COST}ن</span>
+          <div><div style="font-weight:900;font-size:13px;">إشارة حمراء وهمية</div><div style="font-size:11px;color:var(--muted);">وضع نقطة تضليل على الرادار 15 ثانية</div></div>
+          <span class="pill pill-red tnum">${C.DECOY_COST}ن</span>
         </button>
-        <button class="power-tile" style="border-color:rgba(255,46,84,0.55);background:rgba(110,21,23,0.32);" onclick="onUseAbility('JAMMER')">
-          <div>
-            <div style="font-weight:900;font-size:13.5px;color:#fff;">⚡ تكتيم المحلل وفصل الرادار</div>
-            <div style="font-size:11px;color:#FDA4AF;">يفصل الرادار ويكتم الـ AI لمدة 75 ثانية!</div>
-          </div>
-          <span class="pill" style="background:var(--crimson);color:#fff;">${C.JAMMER_COST}ن</span>
+        <button class="power-tile" style="border-color:var(--crimson-border);" onclick="onUseAbility('JAMMER')">
+          <div><div style="font-weight:900;font-size:13px;color:#FF6B7D;">تشويش إلكتروني</div><div style="font-size:11px;color:var(--muted);">إيقاف الرادار والمحلل 75 ثانية</div></div>
+          <span class="pill pill-red tnum">${C.JAMMER_COST}ن</span>
         </button>
       `;
-      mr.innerHTML = bottomSheetHtml("😈 ألاعيب الغدّار", body, "#FF6B86");
+      mr.innerHTML = bottomSheetHtml("ألاعيب الغدّار", body, "#FF6B7D");
       return;
     }
 
-    // 5. INVESTIGATOR-ONLY POWERS BOTTOM SHEET (أدوات المحقق فقط)
+    // 7. Investigator Powers
     if (st.modal === "investigator_powers" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const body = `
-        <div style="font-size:11.5px;color:var(--muted);font-weight:700;">رصيدك الحالي: <b style="color:#67E8F9;">${vis.self.points} نقطة</b></div>
+        <div style="font-size:12px;color:var(--muted);font-weight:800;">رصيدك: <b style="color:var(--cyan);" class="tnum">${vis.self.points} نقطة</b></div>
         <button class="power-tile" onclick="onUseAbility('STEALTH')" ${vis.self.stealthUsesRemaining <= 0 ? "disabled" : ""}>
-          <div>
-            <div style="font-weight:900;font-size:13.5px;">👻 طاقية الإخفاء</div>
-            <div style="font-size:11px;color:var(--muted);">متبانش للغدّار في الرادار الجاي</div>
-          </div>
-          <span class="pill" style="background:var(--green-soft);color:#6EE7B7;">مجاني (${vis.self.stealthUsesRemaining})</span>
+          <div><div style="font-weight:900;font-size:13px;">إخفاء من الرصد القادم</div><div style="font-size:11px;color:var(--muted);">لا يظهر موقعك في قراءة الرادار التالية</div></div>
+          <span class="pill pill-green">مجاني (${vis.self.stealthUsesRemaining})</span>
         </button>
-        <button class="power-tile" style="border-color:rgba(0,212,255,0.4);" onclick="onUseAbility('PROTECT')">
-          <div>
-            <div style="font-weight:900;font-size:13.5px;color:#67E8F9;">🛡️ درع الحماية (15 ثانية)</div>
-            <div style="font-size:11px;color:var(--muted);">يحميك من التفنيش لو شاكك إن الغدّار وراك!</div>
-          </div>
-          <span class="pill" style="background:var(--cyan-soft);color:#67E8F9;">${C.PROTECTION_COST}ن</span>
+        <button class="power-tile" onclick="onUseAbility('PROTECT')">
+          <div><div style="font-weight:900;font-size:13px;color:var(--cyan);">درع الحماية (15ث)</div><div style="font-size:11px;color:var(--muted);">يمنع الغدّار من إقصائك مؤقتاً</div></div>
+          <span class="pill pill-cyan tnum">${C.PROTECTION_COST}ن</span>
         </button>
-        <div style="background:var(--surface-2);padding:11px;border-radius:16px;border:1px solid var(--border);">
-          <div style="font-size:12px;font-weight:900;color:#67E8F9;margin-bottom:7px;">📡 مسح معلم من الخريطة (${C.LOCATION_QUESTION_COST}ن — تعرف مين قريب منه):</div>
-          <div class="grid-2" style="gap:6px;">
+        <div class="card" style="padding:10px;">
+          <div style="font-size:11.5px;font-weight:800;color:var(--cyan);margin-bottom:6px;">مسح منطقة محددة (${C.LOCATION_QUESTION_COST}ن):</div>
+          <div class="grid-2" style="gap:5px;">
             ${(vis.landmarks || []).map((lm) =>
-              `<button class="btn btn-outline btn-xs" style="justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="onScanPlace('${esc(lm.id)}')">📍 ${esc(lm.name)}</button>`
+              `<button class="btn btn-outline btn-xs" style="justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="onScanPlace('${esc(lm.id)}')">${esc(lm.name)}</button>`
             ).join("")}
           </div>
         </div>
-        <button class="power-tile" style="border-color:rgba(255,176,32,0.5);background:rgba(255,176,32,0.1);" onclick="onUseAbility('BOLD_HINT')">
-          <div>
-            <div style="font-weight:900;font-size:13.5px;color:#FDE68A;">🔥 تلميح تقيل عن الغدّار</div>
-            <div style="font-size:11px;color:var(--muted);">المحلل يهمسلك الغدّار قريب من أنهي مكان وبعيد كام متر!</div>
-          </div>
-          <span class="pill" style="background:var(--gold);color:#05070B;">${C.BOLD_HINT_COST}ن</span>
+        <button class="power-tile" style="border-color:var(--amber-border);" onclick="onUseAbility('BOLD_HINT')">
+          <div><div style="font-weight:900;font-size:13px;color:var(--amber);">تلميح مباشر عن الغدّار</div><div style="font-size:11px;color:var(--muted);">تحديد أقرب شارع ومسافة تقريبية للغدّار</div></div>
+          <span class="pill pill-amber tnum">${C.BOLD_HINT_COST}ن</span>
         </button>
       `;
-      mr.innerHTML = bottomSheetHtml("🛡️ شنطة أدوات المحقق", body, "#67E8F9");
+      mr.innerHTML = bottomSheetHtml("أدوات المحقق", body, "var(--cyan)");
       return;
     }
 
-    // 6. Broker Secret Deal Bottom Sheet (Role-Specific!)
+    // 8. Broker Secret Deal
     if (st.modal === "broker" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const isImp = vis.self.role === "IMPOSTER";
       const body = `
-        <p style="font-size:12.5px;font-weight:700;line-height:1.7;margin:0;">
-          اختار صفقة واحدة.. <span style="color:#FF6B86;">التمن في الحالتين: مكانك هينور بالأحمر على خريطة الكل لمدة 15 ثانية!</span>
+        <p style="font-size:12.5px;color:var(--muted);font-weight:700;margin:0;line-height:1.6;">
+          الثمن في الحالتين: <span style="color:var(--crimson);">ينكشف موقعك مباشرة بالأحمر للجميع لمدة 15 ثانية.</span>
         </p>
         <button class="btn btn-warning" onclick="onAcceptBroker('intel')">
-          ${isImp ? "🩸 اكشف مكان ومسافة أقرب صيدة (محقق)" : "🎯 اكشف مكان ومسافة أقرب غدّار"}
+          ${isImp ? "كشف مكان ومسافة أقرب محقق" : "كشف مكان ومسافة أقرب غدّار"}
         </button>
-        <button class="btn btn-success" onclick="onAcceptBroker('cash')">💰 خد +${C.BROKER_CASH_REWARD} نقطة كاش فوراً</button>
-        <button class="btn btn-outline" onclick="onCloseModal()">فكك مني 😅</button>
+        <button class="btn btn-success" onclick="onAcceptBroker('cash')">الحصول على +${C.BROKER_CASH_REWARD} نقطة</button>
+        <button class="btn btn-outline" onclick="onCloseModal()">رفض الصفقة</button>
       `;
-      mr.innerHTML = bottomSheetHtml("🤝 صفقة السمسار السرية", body, "#FDE68A");
+      mr.innerHTML = bottomSheetHtml("صفقة السمسار", body, "var(--amber)");
       return;
     }
 
-    // 7. High-Stakes Direct Accusation (Investigator Only!)
+    // 9. Direct Accusation
     if (st.modal === "spoken" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const body = `
-        <div class="intel-item" style="border-color:var(--gold);background:var(--gold-soft);color:#FDE68A;">
-          ⚠️ لو متأكد مين الغدّار اختاره وهيخرج فوراً! بس لو طلع بريء هتخسر <b>${C.SPOKEN_PENALTY_POINTS} نقطة</b> ومكانك هيتكشف بالأحمر 10 ثواني!
+        <div class="intel-item" style="border-right-color:var(--amber);">
+          لو اتهامك صح الغدّار بيخرج فوراً؛ ولو غلط بتخسر ${C.SPOKEN_PENALTY_POINTS}ن وينكشف مكانك 10 ثواني.
         </div>
         ${vis.players.filter((p) => p.alive && p.id !== vis.self.id).map((p) => `
           <button class="power-tile" onclick="onSpokenName('${p.id}')">
             <div style="display:flex;align-items:center;gap:10px;">
               ${avatarBadge(p.name)}
-              <span style="font-weight:800;font-size:14px;">${esc(p.name)}</span>
+              <span style="font-weight:800;font-size:13.5px;">${esc(p.name)}</span>
             </div>
-            <span class="pill" style="background:var(--crimson-soft);color:#FF6B86;">اتهام 🔥</span>
+            <span class="pill pill-red">اتهام</span>
           </button>
         `).join("")}
       `;
-      mr.innerHTML = bottomSheetHtml("🗣️ قفشة مباشرة للغدّار", body, "#67E8F9");
+      mr.innerHTML = bottomSheetHtml("اتهام مباشر", body, "var(--cyan)");
       return;
     }
 
-    // 8. Full AI Profiler Log Bottom Sheet
+    // 10. AI Profiler & Events Log
     if (st.modal === "intel_log" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const body = `
         ${vis.aiReports.length
           ? [...vis.aiReports].reverse().map((r) => `
               <div class="intel-item">
-                <div style="font-size:10px;color:#FDA4AF;margin-bottom:2px;">${r.source === "groq" ? "🤖 Groq AI لايف" : "📡 رادار التحليل"}</div>
+                <div class="eyebrow" style="color:var(--crimson);margin-bottom:2px;">${r.source === "groq" ? "GROQ AI" : "RADAR INTEL"}</div>
                 ${esc(r.summaryText)}
               </div>
             `).join("")
-          : `<div style="font-size:12px;color:var(--muted);text-align:center;padding:12px;">المحلل بيراقب حركتكم.. أول تقرير هينزل بعد 85 ثانية من بداية اللعب!</div>`
+          : `<div style="font-size:12px;color:var(--muted);text-align:center;padding:10px;">المحلل يراقب التحركات — أول تقرير بعد 85 ثانية.</div>`
         }
-        <div class="section-label" style="margin-top:4px;">📋 آخر أحداث الميدان</div>
-        ${[...vis.events].reverse().slice(0, 14).map((e) => `
-          <div style="background:var(--surface-2);padding:8px 11px;border-radius:12px;font-size:11.5px;font-weight:700;">${esc(e.message)}</div>
+        <div class="eyebrow" style="margin-top:4px;">سجل الأحداث</div>
+        ${[...vis.events].reverse().slice(0, 12).map((e) => `
+          <div class="chat-msg">${esc(e.message)}</div>
         `).join("")}
       `;
-      mr.innerHTML = bottomSheetHtml("🤖 سجل المحلل النفسي", body);
+      mr.innerHTML = bottomSheetHtml("سجل المحلل والميدان", body);
       return;
     }
 
-    // 9. Simulation Lab Controls Bottom Sheet (keeps main map 100% clean!)
+    // 11. Simulation Tools
     if (st.modal === "sim_tools" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const isSpread = vis.phase === "SPREAD";
       const body = `
         <div class="grid-2">
-          <button class="btn btn-primary btn-sm" onclick="onSimToggleRole();onCloseModal()">🎭 بدّل الدور (غدّار / محقق)</button>
-          <button class="btn btn-cyan btn-sm" onclick="onToggleSimDpad();onCloseModal()">${st.simDpadVisible ? "أخفي أسهم التحريك" : "🕹️ أظهر أسهم التحريك"}</button>
-          <button class="btn btn-soft btn-sm" onclick="cycleSimSpeed();Kameen.UI.renderModal()">⏩ سرعة المحاكاة: ${st.simSpeed}x</button>
+          <button class="btn btn-crimson-outline btn-sm" onclick="onSimToggleRole();onCloseModal()">تبديل الدور (غدّار/محقق)</button>
+          <button class="btn btn-cyan btn-sm" onclick="onToggleSimDpad();onCloseModal()">${st.simDpadVisible ? "إخفاء أسهم التحريك" : "أسهم التحريك"}</button>
+          <button class="btn btn-outline btn-sm" onclick="cycleSimSpeed();Kameen.UI.renderModal()">السرعة: ${st.simSpeed}x</button>
           ${isSpread
-            ? `<button class="btn btn-warning btn-sm" onclick="onSimSkipSpread();onCloseModal()">⚡ تخطي التشتيت</button>`
-            : `<button class="btn btn-outline btn-sm" onclick="onSimForceAI();onCloseModal()">🤖 تقرير AI دلوقتي</button>`}
-          <button class="btn btn-outline btn-sm" ${isSpread ? "disabled" : ""} onclick="onSimSpawnAirdrop();onCloseModal()">💼 نزّل شنطة إمداد</button>
-          <button class="btn btn-outline btn-sm" ${isSpread ? "disabled" : ""} onclick="onSimTriggerBroker();onCloseModal()">🤝 نزّل صفقة سمسار</button>
-          <button class="btn btn-outline btn-sm" onclick="onSimShrinkZone();onCloseModal()">⭕ صغّر الزون 25%</button>
-          <button class="btn btn-outline btn-sm" ${isSpread ? "disabled" : ""} onclick="onSimRadar();onCloseModal()">📡 شغّل الرادار</button>
+            ? `<button class="btn btn-warning btn-sm" onclick="onSimSkipSpread();onCloseModal()">تخطي التشتيت</button>`
+            : `<button class="btn btn-outline btn-sm" onclick="onSimForceAI();onCloseModal()">تقرير AI الآن</button>`}
+          <button class="btn btn-outline btn-sm" ${isSpread ? "disabled" : ""} onclick="onSimRadar();onCloseModal()">تحديث الرصد الآن</button>
+          <button class="btn btn-outline btn-sm" ${isSpread ? "disabled" : ""} onclick="onSimSpawnAirdrop();onCloseModal()">إنزال إمداد</button>
+          <button class="btn btn-outline btn-sm" ${isSpread ? "disabled" : ""} onclick="onSimTriggerBroker();onCloseModal()">صفقة سمسار</button>
+          <button class="btn btn-outline btn-sm" onclick="onSimShrinkZone();onCloseModal()">تصغير الزون</button>
         </div>
-        <button class="btn btn-danger btn-sm" style="width:100%;margin-top:4px;" onclick="exitGameToLanding()">🚪 إنهاء المحاكاة والرجوع للرئيسية</button>
+        <button class="btn btn-danger btn-sm" style="width:100%;" onclick="exitGameToLanding()">إنهاء المحاكاة</button>
       `;
-      mr.innerHTML = bottomSheetHtml("🧪 أدوات مختبر المحاكاة", body, "#FDE68A");
+      mr.innerHTML = bottomSheetHtml("أدوات المحاكاة", body, "var(--amber)");
       return;
     }
 
-    // 9.5 HyperLock 3M Sensor-Fusion Telemetry & Calibration Sheet
-    if (st.modal === "precision_hud") {
-      mr.innerHTML = bottomSheetHtml(
-        "🎯 نظام الدقة HyperLock 3M",
-        `<div id="precision-sheet-body" style="display:flex;flex-direction:column;gap:9px;">${buildPrecisionSheetBody()}</div>`,
-        "#6EE7B7"
-      );
-      return;
-    }
-
-    // 10. Permissions & Keys Settings Bottom Sheet
-    if (st.modal === "permissions") {
-      const gpsTxt = formatGpsStatusText();
-      const hasKey = Boolean((st.groqKey || "").trim());
-      const body = `
-        <div class="power-tile" style="cursor:default;">
-          <div>
-            <div style="font-size:12.5px;font-weight:800;">الموقع الجغرافي (GPS)</div>
-            <div id="perm-gps-sub" style="font-size:11px;color:var(--muted);">${esc(gpsTxt)}</div>
-          </div>
-          <button id="perm-gps-btn" class="btn btn-primary btn-xs" onclick="onRecalibrateGps()">${st.gps.status === "granted" ? "معايرة 📡" : "تفعيل GPS"}</button>
-        </div>
-        <div class="power-tile" style="cursor:default;">
-          <div>
-            <div style="font-size:12.5px;font-weight:800;">البوصلة وحساس الخطوات (PDR) 🧭👣</div>
-            <div style="font-size:11px;color:var(--muted);">${st.gps.compassActive ? "شغالة لايف ✅ (" + K.App.headingToArabic(st.gps.heading) + ")" : "بتوريّك أنت باصص فين ع الخريطة"}</div>
-          </div>
-          <button class="btn btn-cyan btn-xs" onclick="onEnableCompass()">تفعيل 🧭</button>
-        </div>
-        <div class="power-tile" style="cursor:default;">
-          <span style="font-size:12.5px;font-weight:800;">الكاميرا (لتوثيق المهام)</span>
-          <button id="perm-cam-btn" class="btn btn-primary btn-xs" onclick="void Kameen.App.requestCameraPerm()">${st.camera.status === "granted" ? "جاهزة ✅" : "تفعيل"}</button>
-        </div>
-        <div style="background:var(--surface-2);padding:11px 12px;border-radius:16px;border:1px solid var(--border);">
-          <div style="font-size:11px;font-weight:800;margin-bottom:5px;color:${hasKey ? "#6EE7B7" : "#FDE68A"};">
-            ${hasKey ? "مفتاح Groq AI محفوظ على موبايلك ✅" : "مفتاح Groq AI (الصقه هنا مرة واحدة — مش بيترفع على GitHub):"}
-          </div>
-          <input class="input" style="padding:9px 11px;font-size:11.5px;direction:ltr;" type="password"
-            placeholder="gsk_..."
-            value="${esc(st.groqKey)}"
-            oninput="Kameen.state.groqKey=this.value;try{localStorage.setItem('kameen_groq_key',this.value)}catch{}" />
-        </div>
-        <button class="btn btn-primary" style="width:100%;" onclick="Kameen.App.startRealGps();onCloseModal();if(Kameen.state.route==='landing')Kameen.UI.renderPage()">حفظ وإغلاق 🔥</button>
-      `;
-      mr.innerHTML = bottomSheetHtml("⚙️ إعدادات التطبيق", body);
-      return;
-    }
-
-    // 11. Mission Camera Proof Bottom Sheet
+    // 12. Mission Camera Proof
     if (st.modal === "camera" && st.engine) {
       const body = `
-        <p style="font-size:12px;color:var(--muted);font-weight:700;margin:0;text-align:center;">
-          صوّر <b>صورة سريعة</b> أو <b>فيديو قصير</b> للمكان.. Groq Vision هيتأكد إنه حقيقي وبعدها الملف بيتمسح تلقائي.
+        <p style="font-size:12px;color:var(--muted);font-weight:600;margin:0;text-align:center;">
+          التقط صورة سريعة للمكان للتحقق من إتمام المهمة.
         </p>
         <div id="cam-verdict-box" class="${st.videoVerdict ? "" : "hidden"}"
-          style="background:var(--crimson-soft);color:#FDA4AF;padding:10px;border-radius:13px;font-size:12px;font-weight:800;text-align:center;">
+          style="background:var(--crimson-tint);border:1px solid var(--crimson-border);color:#FF6B7D;padding:10px;border-radius:10px;font-size:12px;font-weight:800;text-align:center;">
           ${esc(st.videoVerdict || "")}
         </div>
         <label class="btn btn-primary" style="width:100%;cursor:pointer;padding:14px;">
-          <span id="cam-upload-lbl">${st.videoAnalyzing ? "⏳ الذكاء الاصطناعي بيفحص اللقطة..." : "📸 صوّر صورة أو فيديو سريع"}</span>
+          <span id="cam-upload-lbl">${st.videoAnalyzing ? "جاري فحص الصورة بالذكاء الاصطناعي..." : "التقط صورة أو فيديو سريع"}</span>
           <input type="file" accept="image/*,video/*" capture="environment" style="display:none;"
             onchange="if(this.files&&this.files[0])void Kameen.AI.analyzeMissionMedia(Kameen.state.activeCameraMissionId, this.files[0])" />
         </label>
       `;
-      mr.innerHTML = bottomSheetHtml("📸 توثيق المهمة بالذكاء الاصطناعي", body);
+      mr.innerHTML = bottomSheetHtml("توثيق المهمة", body);
       return;
     }
 

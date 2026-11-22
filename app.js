@@ -7,11 +7,11 @@ window.Kameen = window.Kameen || {};
   try { localStorage.setItem("kameen_uid", storedUid); } catch {}
   const storedName = localStorage.getItem("kameen_name") || "العميل X";
   const stats = K.loadStats();
+  const permsDone = localStorage.getItem("kameen_perms_v4") === "1";
 
   K.state = {
-    route: "landing",
+    route: permsDone ? "landing" : "permissions_gate",
     mapStyle: "radar_streets",
-    tileErrorCount: 0,
     user: {
       id: storedUid,
       name: storedName,
@@ -22,10 +22,10 @@ window.Kameen = window.Kameen || {};
     },
     gps: {
       coords: { ...K.CONFIG.DEFAULT_CENTER },
-      accuracy: null,         // Fused accuracy (m)
-      rawAccuracy: null,      // Raw GNSS accuracy (m)
-      heading: null,          // degrees 0..359 (0=North, 90=East)
-      headingSource: null,    // "compass" | "gps" | "fused" | "sim"
+      accuracy: null,
+      rawAccuracy: null,
+      heading: null,
+      headingSource: null,
       compassActive: false,
       motionActive: false,
       hasRealFix: false,
@@ -51,9 +51,10 @@ window.Kameen = window.Kameen || {};
       duration: 15,
       spreadSeconds: 60,
       imposters: 1,
+      revealIntervalSec: K.GAME_CONSTANTS.DEFAULT_REVEAL_INTERVAL_SEC,
+      revealMode: K.GAME_CONSTANTS.DEFAULT_REVEAL_MODE,
       pois: [],
       poiSource: null,
-      panelCollapsed: false,
     },
     lobby: null,
     joinCode: "",
@@ -72,6 +73,7 @@ window.Kameen = window.Kameen || {};
     lastIntel: null,
     lastBrokerIdNotified: null,
     lastAirdropIdNotified: null,
+    lastPingSweepNotified: 0,
     aiBusy: false,
     videoAnalyzing: false,
     videoVerdict: null,
@@ -112,14 +114,6 @@ window.Kameen = window.Kameen || {};
     const st = K.state;
     st.gps.compassActive = Boolean(res.compassOk);
     st.gps.motionActive = Boolean(res.motionOk);
-    if (fromUserGesture) {
-      if (res.compassOk || res.motionOk) {
-        K.showToast("🧭👣 تم تفعيل البوصلة وحساس الخطوات (PDR) لدقة أعلى!");
-      } else {
-        K.showToast("⚠️ المتصفح منع الحساسات — شغالين بالـ GPS الدقيق");
-      }
-      if (st.modal === "precision_hud" || st.modal === "permissions") K.UI.renderModal();
-    }
   }
 
   function onFusedLocationUpdate(nextCoords, tele) {
@@ -141,38 +135,25 @@ window.Kameen = window.Kameen || {};
       st.gps.coords = nextCoords;
     }
 
-    // Auto-center immediately on first real GPS fix OR better fix on Create Zone screen
     const rawAcc = tele.rawAcc || 20;
     if (isFirstRealFix || (!st.gps.userPickedZone && rawAcc + 3 < st.gps.bestCenterAcc && st.route === "create")) {
       st.gps.bestCenterAcc = rawAcc;
       st.createForm.center = { ...nextCoords };
-      if (useRealHere) {
-        K.Map.flyTo(nextCoords, 18.4, !isFirstRealFix);
-      }
-      if (st.route === "create") {
-        void K.Map.fetchOverpassPOIs(nextCoords, st.createForm.radius);
-      }
+      if (useRealHere) K.Map.flyTo(nextCoords, 18.2, !isFirstRealFix);
+      if (st.route === "create") void K.Map.fetchOverpassPOIs(nextCoords, st.createForm.radius);
       st.gps.centeredOnce = true;
     }
 
-    // Immediate 60fps smooth glide on every GPS fix AND every PDR footstep!
     if (useRealHere && (st.route === "game" || st.route === "simulation" || st.route === "create")) {
       K.Map.setSelfLiveCoords(nextCoords, true);
-      // Fast precision badge update on the side FAB without full HUD rebuild
-      const accBtn = document.getElementById("gps-acc-fab");
-      if (accBtn && st.gps.accuracy !== null) {
-        accBtn.textContent = "±" + (st.gps.accuracy < 10 ? st.gps.accuracy.toFixed(1) : Math.round(st.gps.accuracy));
-      }
     }
 
-    // Push fused location to game engine & multiplayer room (throttled to 650ms)
-    if (st.engine && useRealHere && now - st.gps.lastSentAt >= 650) {
+    if (st.engine && useRealHere && now - st.gps.lastSentAt >= 700) {
       st.gps.lastSentAt = now;
       dispatchAction("UPDATE_LOC", { coords: nextCoords });
     }
 
     K.UI.updateGpsStatusDOM();
-    if (st.modal === "precision_hud") K.UI.updatePrecisionSheetDynamic();
   }
 
   function onFusedHeadingUpdate(deg, source) {
@@ -187,10 +168,8 @@ window.Kameen = window.Kameen || {};
     const st = K.state;
     st.gps.status = err && err.code === 1 ? "denied" : "idle";
     st.gps.error = err && err.code === 1
-      ? "رفضت إذن الموقع — افتحه من إعدادات المتصفح واختار (دقيق)"
-      : (location.protocol !== "https:" && location.hostname !== "localhost")
-        ? "الـ GPS محتاج رابط HTTPS (جيت هاب / فيرسل بيدعمه!)"
-        : "لسه بيلقط أقمار GPS — اخرج للشارع أو البلكونة";
+      ? "تم رفض إذن الموقع — فعّله من إعدادات المتصفح"
+      : "جاري التقاط إشارة GPS...";
     K.UI.updateGpsStatusDOM();
   }
 
@@ -200,9 +179,7 @@ window.Kameen = window.Kameen || {};
     st.gps.bestCenterAcc = Infinity;
     st.mapFollowMe = true;
     st.simUseRealGps = true;
-    K.showToast("📡 جاري المعايرة الفائقة للأقمار وحساسات الحركة...");
     K.Location.recalibrate(true);
-    if (st.modal === "precision_hud") K.UI.updatePrecisionSheetDynamic();
   }
 
   function startRealGps() {
@@ -216,21 +193,18 @@ window.Kameen = window.Kameen || {};
     });
   }
 
-  async function requestCameraPerm() {
+  async function requestCameraPerm(silent = false) {
     const st = K.state;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
       stream.getTracks().forEach((t) => t.stop());
       st.camera.status = "granted";
       st.camera.error = null;
-      K.showToast("📸 الكاميرا جاهزة يا باشا!");
+      if (!silent) K.showToast("تم تفعيل الكاميرا");
     } catch {
       st.camera.status = "denied";
-      st.camera.error = "مش عارف أفتح الكاميرا — اديني الإذن";
-      K.showToast("⚠️ ادّي المتصفح إذن الكاميرا عشان المهام");
+      st.camera.error = "لم يتم منح إذن الكاميرا";
     }
-    const cBtn = document.getElementById("perm-cam-btn");
-    if (cBtn) cBtn.textContent = st.camera.status === "granted" ? "جاهزة ✅" : "تفعيل";
   }
 
   function handleMapTap(clicked) {
@@ -239,11 +213,10 @@ window.Kameen = window.Kameen || {};
       const res = K.Location.setAnchorCalibration(clicked.lat, clicked.lng);
       st.gps.anchorCalibrating = false;
       document.body.classList.remove("anchor-calibrating");
-      if (!res.ok) {
-        K.showToast("⚠️ " + res.error);
-      } else {
+      if (!res.ok) K.showToast(res.error);
+      else {
         K.SFX.play("win");
-        K.showToast(`🎯 تم تثبيت موقعك بالظبط! (اتصحح ترحيل ${res.correctedMeters}م)`);
+        K.showToast(`تم ضبط موقعك (تصحيح ${res.correctedMeters}م)`);
       }
       K.Map.updateLayers();
       K.UI.updateHudOnly();
@@ -254,11 +227,11 @@ window.Kameen = window.Kameen || {};
       st.createForm.center = clicked;
       void K.Map.fetchOverpassPOIs(clicked, st.createForm.radius);
       K.Map.updateLayers();
-      K.showToast("📍 تمام! مركز الزون اتحرك للمكان ده");
+      K.showToast("تم تحريك مركز الزون");
     } else if (st.route === "simulation" && st.engine) {
       if (st.simUseRealGps) {
         st.simUseRealGps = false;
-        K.showToast("🕹️ تحكم يدوي شغال — اضغط 📍 للرجوع لموقعك الحقيقي");
+        K.showToast("تحكم يدوي مفعّل — اضغط زر التمركز للرجوع للـ GPS");
       }
       const prev = st.engine.getVisibleStateForPlayer(st.user.id).self.coords;
       if (K.Geo.distanceMeters(prev, clicked) >= 1) {
@@ -308,7 +281,6 @@ window.Kameen = window.Kameen || {};
     }
 
     if (isMap) {
-      // Automatically boost HyperLock GPS + Compass + PDR Step Sensor whenever entering radar!
       K.Location.boostLock(true);
       const c = nextRoute === "create"
         ? st.createForm.center
@@ -398,10 +370,10 @@ window.Kameen = window.Kameen || {};
         res = st.engine.requestBoldHint(playerId);
         if (res.ok && res.meta) {
           const aiHint = await K.AI.callGroqChat(
-            "أنت المحلل النفسي في لعبة مطاردة شعبية اسمها كمين. رد بجملة واحدة روشة ومشوقة بالعامية المصرية بدون أي أسماء لاعبين.",
-            `اكتب تلميح جريء يقول إن الغدّار موجود ${res.meta.place} على بعد حوالي ${res.meta.dist} متر. ممنوع تقول قطاع شمالي أو جنوبي.`
+            "أنت المحلل النفسي في لعبة كمين. رد بجملة واحدة مشوقة بالعامية المصرية بدون أي أسماء لاعبين.",
+            `اكتب تلميح يقول إن الغدّار موجود ${res.meta.place} على بعد حوالي ${res.meta.dist} متر.`
           );
-          if (aiHint) res.intelText = "🔥 المحلل بيهمسلك: " + aiHint;
+          if (aiHint) res.intelText = "المحلل: " + aiHint;
         }
         break;
       case "MISSION_START":
@@ -436,8 +408,6 @@ window.Kameen = window.Kameen || {};
       K.UI.updateHudOnly();
     } else if (st.route === "meeting") {
       K.UI.updateMeetingDynamic();
-    } else if (st.route === "missions") {
-      K.UI.renderPage();
     } else if (st.route === "result") {
       K.UI.updateResultChatDOM();
     }
@@ -448,7 +418,7 @@ window.Kameen = window.Kameen || {};
     if (st.recordedGameOverId === snap.matchId) return;
     st.recordedGameOverId = snap.matchId;
     const me = snap.players[st.user.id];
-    if (!me) return;
+    if (!me || me.isSpectator) return;
     const won = (snap.winner === "INVESTIGATORS" && me.role === "INVESTIGATOR") ||
                 (snap.winner === "IMPOSTERS" && me.role === "IMPOSTER");
     st.user.matchesPlayed += 1;
@@ -466,21 +436,27 @@ window.Kameen = window.Kameen || {};
   function checkMatchTransitions(prevPhase, snap) {
     const st = K.state;
 
+    if (snap.lastPingSweepAtMs && snap.lastPingSweepAtMs !== st.lastPingSweepNotified) {
+      st.lastPingSweepNotified = snap.lastPingSweepAtMs;
+      K.SFX.play("radar");
+      K.showToast("تم تحديث قراءة الرادار لجميع اللاعبين");
+    }
+
     if (snap.activeBrokerOffer && snap.activeBrokerOffer.id !== st.lastBrokerIdNotified) {
       st.lastBrokerIdNotified = snap.activeBrokerOffer.id;
       K.SFX.play("broker");
-      K.showToast("🤝 صفقة سمسار سرية نزلت! الحقها من فوق!", 4500);
+      K.showToast("صفقة سمسار سرية متاحة الآن");
     }
 
     if (snap.activeAirdrop && snap.activeAirdrop.id !== st.lastAirdropIdNotified) {
       st.lastAirdropIdNotified = snap.activeAirdrop.id;
       K.SFX.play("airdrop");
-      K.showToast(`💼 شنطة إمداد ذهبية نزلت ${snap.activeAirdrop.place}! اجري القطها!`, 4500);
+      K.showToast(`إمداد نزل ${snap.activeAirdrop.place}`);
     }
 
     if (snap.aiReports && snap.aiReports.length > 0) {
       const latest = snap.aiReports[snap.aiReports.length - 1];
-      const formatted = `🤖 المحلل (${latest.source === "groq" ? "AI لايف" : "رادار"}): ${latest.summaryText}`;
+      const formatted = `المحلل: ${latest.summaryText}`;
       if (st.lastIntel !== formatted && Date.now() - latest.createdAtMs < 6000) {
         st.lastIntel = formatted;
         K.SFX.play("intel");
@@ -488,7 +464,7 @@ window.Kameen = window.Kameen || {};
     }
 
     const me = snap.players[st.user.id];
-    if (me && !me.alive && !st.eliminatedAck && snap.phase !== "GAME_OVER") {
+    if (me && !me.alive && !me.isSpectator && !st.eliminatedAck && snap.phase !== "GAME_OVER") {
       st.eliminatedAck = true;
       K.SFX.play("kill");
       K.triggerShake();
@@ -501,7 +477,7 @@ window.Kameen = window.Kameen || {};
       K.triggerShake();
     }
 
-    if (snap.phase === "MEETING" && (st.route === "game" || st.route === "missions" || st.route === "simulation")) {
+    if (snap.phase === "MEETING" && (st.route === "game" || st.route === "simulation")) {
       navigate("meeting");
       return true;
     }
@@ -530,8 +506,6 @@ window.Kameen = window.Kameen || {};
       K.UI.updateHudOnly();
     } else if (st.route === "meeting") {
       K.UI.updateMeetingDynamic();
-    } else if (st.route === "missions") {
-      K.UI.updateMissionsDynamic();
     } else if (st.route === "result") {
       K.UI.updateResultChatDOM();
     }
@@ -563,7 +537,6 @@ window.Kameen = window.Kameen || {};
         K.Map.updateLayers();
         K.UI.updateHudOnly();
         if (st.modal === "missions_sheet") K.UI.updateMissionsDynamic();
-        if (st.modal === "precision_hud") K.UI.updatePrecisionSheetDynamic();
       } else if (st.route === "meeting") {
         K.UI.updateMeetingDynamic();
       }
@@ -573,7 +546,7 @@ window.Kameen = window.Kameen || {};
   function joinLobbyByCode(rawCode) {
     const st = K.state;
     const code = (rawCode || "").trim().toUpperCase();
-    if (code.length < 4) return K.showToast("⚠️ اكتب كود الروم الأول يا صاحبي (مثال KMN402)");
+    if (code.length < 4) return K.showToast("اكتب كود المنطقة أولاً (مثال KMN402)");
     K.SFX.play("click");
 
     const localRaw = localStorage.getItem("kameen_lobby_" + code);
@@ -582,7 +555,7 @@ window.Kameen = window.Kameen || {};
       if (!lobby.players.some((p) => p.id === st.user.id)) {
         lobby.players.push({
           id: st.user.id, name: st.user.name || "العميل X",
-          isBot: false, isHost: false, isReady: true, coords: st.gps.coords,
+          isBot: false, isHost: false, isReady: true, isSpectator: false, coords: st.gps.coords,
         });
         try { localStorage.setItem("kameen_lobby_" + code, JSON.stringify(lobby)); } catch {}
       }
@@ -592,15 +565,11 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    K.showToast("🔍 بندوّر على الروم " + code + " في سوبابيس...");
+    K.showToast("جاري البحث عن الغرفة " + code + "...");
     K.Network.connectRoomChannel(code, () => {
       const sendJoin = () => {
         K.Network.sendRaw("JOIN_REQ", {
-          player: {
-            id: st.user.id,
-            name: st.user.name || "العميل X",
-            coords: st.gps.coords,
-          },
+          player: { id: st.user.id, name: st.user.name || "العميل X", isSpectator: false, coords: st.gps.coords },
         });
       };
       sendJoin();
@@ -614,7 +583,7 @@ window.Kameen = window.Kameen || {};
       st.joinTimeout = setTimeout(() => {
         clearInterval(retryIv);
         if (!st.lobby || st.lobby.code !== code) {
-          K.showToast("❌ ملقيناش روم بالكود ده! اتأكد إن صاحبك فاتح اللوبي");
+          K.showToast("لم يتم العثور على غرفة بهذا الكود");
         }
       }, 7500);
     });
@@ -623,12 +592,69 @@ window.Kameen = window.Kameen || {};
   // =========================================================================
   // GLOBAL EVENT HANDLERS
   // =========================================================================
+  window.onGrantAllPermissionsAndEnter = async () => {
+    K.SFX.warmup();
+    K.SFX.play("click");
+    startRealGps();
+    await startCompass(true);
+    K.Location.boostLock(true);
+    void requestCameraPerm(true);
+    try { localStorage.setItem("kameen_perms_v4", "1"); } catch {}
+    K.showToast("تم تفعيل الموقع والبوصلة والحساسات تلقائياً");
+    navigate("landing");
+  };
+
+  window.onSkipPermissionsGate = () => {
+    K.SFX.warmup();
+    startRealGps();
+    void startCompass(true);
+    try { localStorage.setItem("kameen_perms_v4", "1"); } catch {}
+    navigate("landing");
+  };
+
   window.onNav = (route) => { K.SFX.play("click"); navigate(route); };
   window.onOpenModal = (name) => { K.SFX.play("click"); K.state.modal = name; K.UI.renderModal(); };
   window.onCloseModal = () => {
     K.state.modal = null;
     K.UI.renderModal();
     if (K.state.route === "game" || K.state.route === "simulation") K.UI.updateHudOnly();
+  };
+
+  // Unified Settings updater (works on Home, Create Zone, Lobby with real-time sync, AND Live Match!)
+  window.onUpdateGameSetting = (field, val) => {
+    const st = K.state;
+    K.SFX.play("click");
+    st.createForm[field] = val;
+    if (st.lobby && st.lobby.hostId === st.user.id) {
+      st.lobby[field] = val;
+      K.Network.broadcastLobbyState();
+      if (st.route === "lobby") K.UI.renderPage();
+    }
+    if (st.engine && isMatchHost() && (field === "revealIntervalSec" || field === "revealMode")) {
+      st.engine.updateLiveSettings({ [field]: val });
+      K.Network.broadcastMatchSnapshot(true);
+      if (st.route === "game" || st.route === "simulation") K.UI.updateHudOnly();
+    }
+    if (st.route === "create") K.UI.updateHudOnly();
+    K.UI.renderModal();
+  };
+
+  window.onToggleLobbySpectator = () => {
+    const st = K.state;
+    if (!st.lobby) return;
+    K.SFX.play("click");
+    const me = st.lobby.players.find((p) => p.id === st.user.id);
+    if (!me) return;
+    const nextSpec = !me.isSpectator;
+    if (st.lobby.hostId === st.user.id) {
+      me.isSpectator = nextSpec;
+      K.Network.broadcastLobbyState();
+      K.UI.renderPage();
+    } else {
+      me.isSpectator = nextSpec;
+      K.Network.sendRaw("SPECTATOR_REQ", { playerId: st.user.id, isSpectator: nextSpec });
+      K.UI.renderPage();
+    }
   };
 
   window.onStartCreateFlow = () => {
@@ -642,22 +668,12 @@ window.Kameen = window.Kameen || {};
 
   window.onUseMyLocationForZone = () => {
     startRealGps();
+    K.Location.boostLock(true);
     K.state.createForm.center = { ...K.state.gps.coords };
     K.Map.recenter();
     void K.Map.fetchOverpassPOIs(K.state.createForm.center, K.state.createForm.radius);
     K.Map.updateLayers();
-    K.showToast("📍 الزون اتظبطت على مكانك الحالي!");
-  };
-
-  window.onToggleCreatePanel = () => {
-    K.state.createForm.panelCollapsed = !K.state.createForm.panelCollapsed;
-    K.UI.updateHudOnly();
-  };
-
-  window.onSetCreateField = (field, val) => {
-    K.SFX.play("click");
-    K.state.createForm[field] = val;
-    K.UI.updateHudOnly();
+    K.showToast("تم ضبط الزون على موقعك الحالي");
   };
 
   window.onRadiusSlide = (val) => {
@@ -665,7 +681,9 @@ window.Kameen = window.Kameen || {};
     K.Map.updateLayers();
     const lbl = document.getElementById("create-radius-lbl");
     if (lbl) {
-      lbl.innerHTML = `نصف القطر: <span style="color:var(--gold);">${val}م</span> • ${K.state.createForm.pois.length} نقطة (${K.escHtml(K.state.createForm.poiSource || "جاهز")})`;
+      const sec = K.state.createForm.revealIntervalSec;
+      const rTxt = sec < 60 ? `${sec} ثانية` : (sec === 60 ? "دقيقة" : (sec === 120 ? "دقيقتين" : `${Math.round(sec / 60)} دقائق`));
+      lbl.innerHTML = `نصف القطر <span style="color:var(--crimson);" class="tnum">${val}م</span> • رصد كل ${rTxt}`;
     }
   };
 
@@ -686,16 +704,18 @@ window.Kameen = window.Kameen || {};
       duration: st.createForm.duration,
       spreadSeconds: st.createForm.spreadSeconds,
       imposters: st.createForm.imposters,
+      revealIntervalSec: st.createForm.revealIntervalSec,
+      revealMode: st.createForm.revealMode,
       pois,
       players: [{
         id: st.user.id, name: st.user.name || "العميل X",
-        isBot: false, isHost: true, isReady: true, coords: st.gps.coords,
+        isBot: false, isHost: true, isReady: true, isSpectator: false, coords: st.gps.coords,
       }],
       started: false,
     };
     K.Network.connectRoomChannel(code, () => {
       K.Network.broadcastLobbyState();
-      K.showToast(`✅ الروم اتفتح! ابعت كود ${code} لصحابك`);
+      K.showToast(`الغرفة جاهزة • الكود ${code}`);
     });
     navigate("lobby");
   };
@@ -720,14 +740,14 @@ window.Kameen = window.Kameen || {};
   window.onCopyInviteCode = () => {
     if (!K.state.lobby) return;
     navigator.clipboard?.writeText(K.state.lobby.code);
-    K.showToast("📋 الكود اتنسخ! ابعته لصحابك");
+    K.showToast("تم نسخ كود الغرفة");
   };
 
   window.onShareWhatsApp = () => {
     if (!K.state.lobby) return;
     const baseUrl = window.location.origin + window.location.pathname;
     const inviteUrl = `${baseUrl}?join=${K.state.lobby.code}`;
-    const msg = `🔥 انزل العب معايا "كمين" على أرض الواقع!\n🔑 كود الروم: ${K.state.lobby.code}\n🚀 ادخل على طول من اللينك ده:\n${inviteUrl}`;
+    const msg = `انضم لغرفة كمين الآن!\nكود المنطقة: ${K.state.lobby.code}\n${inviteUrl}`;
     if (navigator.share) {
       navigator.share({ title: "دعوة لعبة كمين", text: msg }).catch(() => {});
     } else {
@@ -743,8 +763,8 @@ window.Kameen = window.Kameen || {};
     const angle = (idx / 8) * Math.PI * 2;
     st.lobby.players.push({
       id: "bot-" + Date.now() + "-" + idx,
-      name: K.BOT_NAMES[idx % K.BOT_NAMES.length] + " 🤖",
-      isBot: true, isHost: false, isReady: true,
+      name: K.BOT_NAMES[idx % K.BOT_NAMES.length],
+      isBot: true, isHost: false, isReady: true, isSpectator: false,
       coords: K.Geo.offsetCoordinates(st.lobby.center, Math.cos(angle) * 20, Math.sin(angle) * 20),
     });
     K.Network.broadcastLobbyState();
@@ -761,29 +781,26 @@ window.Kameen = window.Kameen || {};
   window.onStartMatchFromLobby = () => {
     const st = K.state;
     if (!st.lobby) return;
-    if (st.lobby.players.length < 3) {
-      return K.showToast("⚠️ لازم 3 لاعبين على الأقل عشان الجيم يشتغل (تقدر تضيف بوتات!)");
-    }
+    const activeCount = st.lobby.players.filter((p) => !p.isSpectator).length;
+    if (activeCount < 3) return K.showToast("مطلوب 3 لاعبين على الأقل لبدء الجيم");
     K.SFX.play("alarm");
     const t0 = Date.now();
     st.isSimMode = false;
-    // Always sync host's latest real GPS coordinates before creating the match!
     const hostEntry = st.lobby.players.find((p) => p.id === st.user.id);
     if (hostEntry && st.gps.hasRealFix) hostEntry.coords = { ...st.gps.coords };
     st.engine = new K.KameenEngine({
       matchId: st.lobby.matchId, code: st.lobby.code, hostId: st.lobby.hostId,
       title: st.lobby.title, zoneCenter: st.lobby.center, zoneRadiusMeters: st.lobby.radius,
       durationMinutes: st.lobby.duration, spreadSeconds: st.lobby.spreadSeconds ?? 60,
-      imposterCount: st.lobby.imposters, pois: st.lobby.pois, seed: t0,
+      imposterCount: st.lobby.imposters,
+      revealIntervalSec: st.lobby.revealIntervalSec || 120,
+      revealMode: st.lobby.revealMode || "ping",
+      pois: st.lobby.pois, seed: t0,
     }, st.lobby.players, t0);
     st.simTimeMs = t0;
     st.lobby.started = true;
-    st.roleRevealed = false;
-    st.roleFlipped = false;
-    st.eliminatedAck = false;
-    st.lastIntel = null;
-    st.lastBrokerIdNotified = null;
-    st.lastAirdropIdNotified = null;
+    st.roleRevealed = false; st.roleFlipped = false; st.eliminatedAck = false;
+    st.lastIntel = null; st.lastBrokerIdNotified = null; st.lastAirdropIdNotified = null; st.lastPingSweepNotified = 0;
     K.Network.broadcastLobbyState();
     K.Network.broadcastMatchSnapshot(true);
     startEngineLoop();
@@ -799,34 +816,27 @@ window.Kameen = window.Kameen || {};
     const t0 = Date.now();
     const center = { ...st.gps.coords };
     const bots = [
-      { id: st.user.id, name: st.user.name || "العميل X", isBot: false, isHost: true, isReady: true, coords: { ...center } },
+      { id: st.user.id, name: st.user.name || "العميل X", isBot: false, isHost: true, isReady: true, isSpectator: false, coords: { ...center } },
       ...K.BOT_NAMES.slice(0, 6).map((n, i) => ({
-        id: "sim-bot-" + i, name: n + " 🤖", isBot: true, isHost: false, isReady: true,
-        coords: K.Geo.offsetCoordinates(center, Math.cos(i) * 30, Math.sin(i) * 30),
+        id: "sim-bot-" + i, name: n, isBot: true, isHost: false, isReady: true, isSpectator: false,
+        coords: K.Geo.offsetCoordinates(center, Math.cos(i) * 32, Math.sin(i) * 32),
       })),
     ];
-    st.isSimMode = true;
-    st.simUseRealGps = true;
-    st.simSpeed = 1;
-    st.simRunning = true;
-    st.simDpadVisible = false;
+    st.isSimMode = true; st.simUseRealGps = true; st.simSpeed = 1; st.simRunning = true; st.simDpadVisible = false;
     st.simTimeMs = t0;
     const initialPois = (st.createForm.pois && st.createForm.pois.length >= 2)
-      ? st.createForm.pois
-      : K.Geo.generateFallbackPOIs(center, 220);
+      ? st.createForm.pois : K.Geo.generateFallbackPOIs(center, 220);
     st.engine = new K.KameenEngine({
-      matchId: "sim-lab-" + t0, code: "SIM001", hostId: st.user.id, title: "مختبر المحاكاة",
-      zoneCenter: center, zoneRadiusMeters: 220, durationMinutes: 15, spreadSeconds: 25,
-      imposterCount: 1, pois: initialPois, seed: t0,
+      matchId: "sim-lab-" + t0, code: "SIM001", hostId: st.user.id, title: "تجربة فردية",
+      zoneCenter: center, zoneRadiusMeters: 220, durationMinutes: st.createForm.duration || 15,
+      spreadSeconds: 20, imposterCount: 1,
+      revealIntervalSec: st.createForm.revealIntervalSec || 120,
+      revealMode: st.createForm.revealMode || "ping",
+      pois: initialPois, seed: t0,
     }, bots, t0);
-    // Fetch real street & landmark names from the map around current GPS for Simulation too!
     void K.Map.fetchOverpassPOIs(center, 220, true);
-    st.roleRevealed = false;
-    st.roleFlipped = false;
-    st.eliminatedAck = false;
-    st.lastIntel = null;
-    st.lastBrokerIdNotified = null;
-    st.lastAirdropIdNotified = null;
+    st.roleRevealed = false; st.roleFlipped = false; st.eliminatedAck = false;
+    st.lastIntel = null; st.lastBrokerIdNotified = null; st.lastAirdropIdNotified = null; st.lastPingSweepNotified = 0;
     startEngineLoop();
     navigate("simulation");
   };
@@ -841,12 +851,7 @@ window.Kameen = window.Kameen || {};
   window.onUseAbility = (type) => { K.state.modal = null; K.UI.renderModal(); dispatchAction(type); };
   window.onScanPlace = (placeId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("LOC_Q", { placeId }); };
   window.onSpokenName = (accusedId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("SPOKEN", { accusedId }); };
-
-  window.onStartMission = (missionId) => {
-    K.state.modal = null;
-    K.UI.renderModal();
-    dispatchAction("MISSION_START", { missionId });
-  };
+  window.onStartMission = (missionId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("MISSION_START", { missionId }); };
 
   window.openCameraForMission = (missionId) => {
     K.state.activeCameraMissionId = missionId;
@@ -898,12 +903,12 @@ window.Kameen = window.Kameen || {};
     const r = K.state.engine.simTogglePlayerRole(K.state.user.id);
     if (r.ok) {
       K.SFX.play("intel");
-      K.showToast(r.role === "IMPOSTER" ? "😈 بقيت إنت الغدّار (إمبوستر)!" : "🕵️ بقيت إنت مفتش (محقق)!");
+      K.showToast(r.role === "IMPOSTER" ? "تم التبديل إلى دور الغدّار" : "تم التبديل إلى دور المحقق");
       K.UI.updateHudOnly();
     }
   };
   window.onSimSkipSpread = () => { K.state.engine?.skipSpread(K.state.simTimeMs); K.Map.updateLayers(); K.UI.updateHudOnly(); };
-  window.onSimForceAI = () => { K.showToast("🤖 بنكلّم الذكاء الاصطناعي..."); void K.AI.triggerProfilerReport(true); };
+  window.onSimForceAI = () => { K.showToast("جاري تحليل التحركات..."); void K.AI.triggerProfilerReport(true); };
   window.onSimSpawnAirdrop = () => { K.state.engine?.spawnAirdrop(K.state.simTimeMs); K.Map.updateLayers(); K.UI.updateHudOnly(); };
   window.onSimTriggerBroker = () => { K.state.engine?.triggerBrokerOffer(4, K.state.simTimeMs); K.UI.updateHudOnly(); };
   window.onSimShrinkZone = () => { K.state.engine?.shrinkZone(K.state.simTimeMs); K.Map.updateLayers(); K.UI.updateHudOnly(); };
@@ -915,10 +920,7 @@ window.Kameen = window.Kameen || {};
     K.WakeLock.release();
     K.setDangerVignette(false);
     updateHeartbeatFx(null);
-    K.state.isSimMode = false;
-    K.state.engine = null;
-    K.state.lobby = null;
-    K.state.modal = null;
+    K.state.isSimMode = false; K.state.engine = null; K.state.lobby = null; K.state.modal = null;
     navigate("landing");
   };
 
@@ -928,40 +930,19 @@ window.Kameen = window.Kameen || {};
     K.WakeLock.release();
     K.setDangerVignette(false);
     updateHeartbeatFx(null);
-    K.state.isSimMode = false;
-    K.state.engine = null;
-    K.state.lobby = null;
-    K.state.modal = null;
+    K.state.isSimMode = false; K.state.engine = null; K.state.lobby = null; K.state.modal = null;
     navigate("create");
   };
 
-  window.addEventListener("resize", () => {
-    K.Map.resize();
-  });
-
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && (K.state.route === "game" || K.state.route === "simulation")) {
-      void K.WakeLock.acquire();
-    }
-  });
-
-  window.onRecalibrateGps = () => recalibrateGps();
-  window.onEnableCompass = () => { void startCompass(true); };
   window.onStartAnchorCalibration = () => {
     const st = K.state;
-    if (!st.gps.hasRealFix) {
-      return K.showToast("⚠️ استنى الـ GPS يلقط موقعك الأول قبل الضبط اليدوي");
-    }
-    if (st.route !== "create" && st.route !== "game" && st.route !== "simulation") {
-      return K.showToast("📍 ادخل الخريطة الأول عشان تضبط مكانك عليها");
-    }
+    if (!st.gps.hasRealFix) return K.showToast("استنى الـ GPS يلقط موقعك أولاً");
     st.modal = null;
     st.gps.anchorCalibrating = true;
     st.simUseRealGps = true;
     document.body.classList.add("anchor-calibrating");
     K.UI.renderModal();
     K.UI.updateHudOnly();
-    K.showToast("🎯 اضغط على مكانك الحقيقي بالظبط على الخريطة دلوقتي!", 4500);
   };
   window.onCancelAnchorCalibration = () => {
     K.state.gps.anchorCalibrating = false;
@@ -970,25 +951,21 @@ window.Kameen = window.Kameen || {};
   };
   window.onClearAnchorCalibration = () => {
     K.Location.clearAnchorCalibration();
-    K.SFX.play("click");
-    K.showToast("🔄 تم إلغاء التعديل اليدوي والرجوع لقراءة الأقمار");
-    if (K.state.modal === "precision_hud") K.UI.updatePrecisionSheetDynamic();
     K.Map.updateLayers();
+    K.showToast("تم إلغاء التعديل اليدوي");
   };
 
+  window.addEventListener("resize", () => K.Map.resize());
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && (K.state.route === "game" || K.state.route === "simulation")) {
+      void K.WakeLock.acquire();
+    }
+  });
+
   K.App = {
-    isMatchHost,
-    startRealGps,
-    recalibrateGps,
-    startCompass,
-    headingToArabic,
-    requestCameraPerm,
-    handleMapTap,
-    navigate,
-    dispatchAction,
-    handleAuthoritativeAction,
-    applyRemoteSnapshot,
-    startEngineLoop,
+    isMatchHost, startRealGps, recalibrateGps, startCompass, headingToArabic,
+    requestCameraPerm, handleMapTap, navigate, dispatchAction,
+    handleAuthoritativeAction, applyRemoteSnapshot, startEngineLoop,
   };
 
   try {
@@ -996,10 +973,14 @@ window.Kameen = window.Kameen || {};
     const inviteCode = params.get("join");
     if (inviteCode && inviteCode.trim().length >= 4) {
       K.state.joinCode = inviteCode.trim().toUpperCase();
-      K.showToast(`🔑 كود الروم ${K.state.joinCode} اتملى تلقائي! اضغط "ادخل 🚀"`);
+    }
+    const aiParam = params.get("ai");
+    if (aiParam && aiParam.trim().startsWith("gsk_")) {
+      K.state.groqKey = aiParam.trim();
+      try { localStorage.setItem("kameen_groq_key", aiParam.trim()); } catch {}
     }
   } catch {}
 
-  startRealGps();
-  navigate("landing");
+  if (permsDone) startRealGps();
+  navigate(K.state.route);
 })(window.Kameen);

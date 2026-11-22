@@ -218,8 +218,12 @@ window.Kameen = window.Kameen || {};
 
     buildInitialSnapshot(config, lobbyPlayers, nowMs) {
       const spreadMs = (config.spreadSeconds ?? 60) * 1000;
-      const playerIds = lobbyPlayers.map((p) => p.id);
-      const roles = this.assignRolesFairly(playerIds, config.imposterCount);
+      const revealIntervalSec = Math.max(30, Number(config.revealIntervalSec || C.DEFAULT_REVEAL_INTERVAL_SEC || 120));
+      const revealIntervalMs = revealIntervalSec * 1000;
+      const revealMode = config.revealMode === "live" ? "live" : "ping";
+
+      const activePlayerIds = lobbyPlayers.filter((p) => !p.isSpectator).map((p) => p.id);
+      const roles = this.assignRolesFairly(activePlayerIds, config.imposterCount);
       const nextZoneCenter = this.computeNextZoneCenter(config.zoneCenter, config.zoneRadiusMeters);
       const nextZoneRadius = Math.round(config.zoneRadiusMeters * C.ZONE_SHRINK_FACTOR);
       const zonePois = (config.pois && config.pois.length >= 2)
@@ -230,7 +234,8 @@ window.Kameen = window.Kameen || {};
       let initialInvCount = 0;
 
       lobbyPlayers.forEach((lp, idx) => {
-        const role = roles[lp.id] ?? "INVESTIGATOR";
+        const isSpec = Boolean(lp.isSpectator);
+        const role = isSpec ? "SPECTATOR" : (roles[lp.id] ?? "INVESTIGATOR");
         if (role === "INVESTIGATOR") initialInvCount += 1;
         let coords = lp.coords;
         if (!coords || !isInsideZone(coords, config.zoneCenter, config.zoneRadiusMeters * 0.9)) {
@@ -238,9 +243,11 @@ window.Kameen = window.Kameen || {};
         }
         players[lp.id] = {
           id: lp.id, name: lp.name, isBot: Boolean(lp.isBot), isHost: Boolean(lp.isHost), isReady: true,
+          isSpectator: isSpec,
           botIndex: idx,
-          role, alive: true, eliminationReason: null, eliminatedAtMs: null,
+          role, alive: !isSpec, eliminationReason: null, eliminatedAtMs: null,
           coords: { ...coords }, lastCoords: { ...coords }, lastTelemetryAtMs: nowMs,
+          lastPingCoords: null, lastPingAtMs: 0,
           speedMps: 0, maxRecentSpeedMps: 0, peakSpeedMps: 0,
           stationarySeconds: 0, totalStationarySec: 0,
           killsCount: 0, airdropsClaimed: 0, missionsCompleted: 0,
@@ -251,9 +258,11 @@ window.Kameen = window.Kameen || {};
           outsideZoneSinceMs: null, brokerRedBroadcastUntilMs: 0,
           spokenNameCooldownUntilMs: 0,
         };
-        missions[lp.id] = generatePlayerMissions(
-          lp.id, role, coords, zonePois, config.zoneCenter, config.zoneRadiusMeters, this.rng
-        );
+        missions[lp.id] = isSpec
+          ? []
+          : generatePlayerMissions(
+              lp.id, role, coords, zonePois, config.zoneCenter, config.zoneRadiusMeters, this.rng
+            );
       });
 
       const missionGoal = Math.max(3, Math.min(12, initialInvCount * 2));
@@ -271,8 +280,12 @@ window.Kameen = window.Kameen || {};
         activeElapsedMs: 0,
         matchDurationMs: (config.durationMinutes || 15) * 60000,
         spreadEndsAtMs: nowMs + spreadMs,
+        revealIntervalMs,
+        revealIntervalSec,
+        revealMode,
+        lastPingSweepAtMs: 0,
         revealEndsAtMs: 0,
-        nextRevealAtActiveMs: C.REVEAL_INTERVAL_MS,
+        nextRevealAtActiveMs: revealMode === "ping" ? Math.min(revealIntervalMs, 15000) : revealIntervalMs,
         nextAiReportAtActiveMs: C.AI_REPORT_INTERVAL_MS,
         nextAirdropAtActiveMs: C.AIRDROP_INTERVAL_MS,
         aiJammedUntilMs: 0,
@@ -318,7 +331,7 @@ window.Kameen = window.Kameen || {};
         const j = Math.floor(this.rng() * (i + 1));
         [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
       }
-      const maxImp = shuffled.length >= 6 ? 2 : 1;
+      const maxImp = shuffled.length >= 9 ? 3 : (shuffled.length >= 5 ? 2 : 1);
       const safeCount = Math.max(1, Math.min(requestedImposters || 1, maxImp));
       const roles = {};
       shuffled.forEach((id, idx) => { roles[id] = idx < safeCount ? "IMPOSTER" : "INVESTIGATOR"; });
@@ -350,6 +363,18 @@ window.Kameen = window.Kameen || {};
       if (this.state.phase === "SPREAD") {
         this.state.spreadEndsAtMs = nowMs;
         this.enterActivePhase(nowMs);
+      }
+    }
+
+    updateLiveSettings(patch = {}) {
+      if (patch.revealIntervalSec) {
+        const sec = Math.max(30, Number(patch.revealIntervalSec));
+        this.state.revealIntervalSec = sec;
+        this.state.revealIntervalMs = sec * 1000;
+        this.state.nextRevealAtActiveMs = this.state.activeElapsedMs + this.state.revealIntervalMs;
+      }
+      if (patch.revealMode === "ping" || patch.revealMode === "live") {
+        this.state.revealMode = patch.revealMode;
       }
     }
 
@@ -413,20 +438,27 @@ window.Kameen = window.Kameen || {};
       const isGameOver = this.state.phase === "GAME_OVER";
       const isGhost = !self.alive && !isSpread;
 
+      const isPingMode = this.state.revealMode !== "live";
       const players = Object.values(this.state.players).map((p) => {
         const isSelf = p.id === self.id;
         const isPartner = self.role === "IMPOSTER" && p.role === "IMPOSTER";
         const isRedBroadcast = !isSpread && p.alive && p.brokerRedBroadcastUntilMs > nowMs;
 
-        const canSeeCoords = isSpread
+        const canSeeLiveCoords = isSpread
           ? isSelf
-          : (isSelf || isGameOver || isGhost || isRedBroadcast || (isRevealActive && p.alive && !p.stealthActiveInCurrentReveal));
+          : (isSelf || isGameOver || isGhost || isRedBroadcast || (!isPingMode && isRevealActive && p.alive && !p.stealthActiveInCurrentReveal));
+
+        const canSeePing = !isSpread && isPingMode && p.alive && !isSelf && Boolean(p.lastPingCoords);
+        const visibleCoords = canSeeLiveCoords ? p.coords : (canSeePing ? p.lastPingCoords : null);
 
         const canSeeRole = isSelf || isGameOver || isPartner || isGhost;
         return {
           id: p.id, name: p.name, isBot: p.isBot, isHost: p.isHost, alive: p.alive,
+          isSpectator: Boolean(p.isSpectator),
           role: canSeeRole ? p.role : "HIDDEN",
-          coords: canSeeCoords ? p.coords : null,
+          coords: visibleCoords,
+          isPingOnly: !canSeeLiveCoords && canSeePing,
+          pingAtMs: p.lastPingAtMs || 0,
           isRedBrokerBroadcast: isRedBroadcast,
           isProtected: p.protectedUntilMs > nowMs,
           points: isSelf ? p.points : undefined,
@@ -498,6 +530,10 @@ window.Kameen = window.Kameen || {};
         spreadRemainingMs: isSpread ? Math.max(0, this.state.spreadEndsAtMs - nowMs) : 0,
         postSpreadGraceSec,
         revealRemainingMs: isRevealActive ? Math.max(0, this.state.revealEndsAtMs - nowMs) : 0,
+        nextRevealInMs: isSpread ? 0 : Math.max(0, this.state.nextRevealAtActiveMs - this.state.activeElapsedMs),
+        revealIntervalSec: this.state.revealIntervalSec || 120,
+        revealMode: this.state.revealMode || "ping",
+        lastPingSweepAtMs: this.state.lastPingSweepAtMs || 0,
         nextShrinkInMs: Math.max(0, this.state.zone.nextShrinkAtActiveMs - this.state.activeElapsedMs),
         isRevealActive, showdownActive: this.state.showdownActive,
         aiJammed: this.state.aiJammedUntilMs > nowMs,
@@ -588,13 +624,15 @@ window.Kameen = window.Kameen || {};
         if (this.state.revealEndsAtMs > 0 && nextNowMs >= this.state.revealEndsAtMs) {
           this.state.revealEndsAtMs = 0;
           for (const p of Object.values(this.state.players)) p.stealthActiveInCurrentReveal = false;
-          this.pushEvent("REVEAL_ENDED", "قفل الرادار — الكل رجع مستخبي تاني.", nextNowMs);
+          if (this.state.revealMode === "live") {
+            this.pushEvent("REVEAL_ENDED", "قفل الرصد المباشر — الكل رجع مستخبي.", nextNowMs);
+          }
         }
         if (this.state.activeElapsedMs >= this.state.nextRevealAtActiveMs) {
-          const dur = this.state.showdownActive ? C.SHOWDOWN_REVEAL_DURATION_MS : C.REVEAL_DURATION_MS;
-          const interval = this.state.showdownActive ? C.SHOWDOWN_REVEAL_INTERVAL_MS : C.REVEAL_INTERVAL_MS;
+          const baseInterval = this.state.revealIntervalMs || 120000;
+          const interval = this.state.showdownActive ? Math.min(baseInterval, C.SHOWDOWN_REVEAL_INTERVAL_MS) : baseInterval;
           if (this.state.aiJammedUntilMs <= nextNowMs) {
-            this.triggerLocationReveal(nextNowMs, dur);
+            this.triggerLocationReveal(nextNowMs, C.LIVE_REVEAL_DURATION_MS || 15000);
           }
           this.state.nextRevealAtActiveMs = this.state.activeElapsedMs + interval;
         }
@@ -687,8 +725,28 @@ window.Kameen = window.Kameen || {};
       return { ok: true, toast: bonusMsg };
     }
 
-    triggerLocationReveal(nowMs = this.state.nowMs, durMs = C.REVEAL_DURATION_MS) {
+    triggerLocationReveal(nowMs = this.state.nowMs, durMs = C.LIVE_REVEAL_DURATION_MS) {
       if (this.state.phase !== "ACTIVE") return;
+      this.state.lastPingSweepAtMs = nowMs;
+      if (this.state.revealMode !== "live") {
+        // Snapshot Ping Mode: stamp every living non-stealth player's location on radar until next sweep!
+        for (const p of Object.values(this.state.players)) {
+          if (!p.alive || p.isSpectator) continue;
+          if (p.stealthArmedForNextReveal) {
+            p.stealthArmedForNextReveal = false;
+            p.stealthActiveInCurrentReveal = true;
+            p.lastPingCoords = null;
+          } else {
+            p.stealthActiveInCurrentReveal = false;
+            p.lastPingCoords = { lat: p.coords.lat, lng: p.coords.lng, accuracyMeters: p.coords.accuracyMeters || 5 };
+            p.lastPingAtMs = nowMs;
+          }
+        }
+        const sec = this.state.revealIntervalSec || 120;
+        const lbl = sec < 60 ? `${sec}ث` : `${Math.round(sec / 60)}د`;
+        this.pushEvent("REVEAL_STARTED", `تم تحديث قراءة الرادار لجميع اللاعبين (التحديث القادم بعد ${lbl})`, nowMs);
+        return;
+      }
       this.state.revealEndsAtMs = nowMs + durMs;
       for (const p of Object.values(this.state.players)) {
         if (p.stealthArmedForNextReveal) {
@@ -698,7 +756,7 @@ window.Kameen = window.Kameen || {};
           p.stealthActiveInCurrentReveal = false;
         }
       }
-      this.pushEvent("REVEAL_STARTED", `📡 رادار كشف الأماكن اشتغل! الكل مكشوف ع الخريطة لمدة ${Math.round(durMs / 1000)} ثانية!`, nowMs);
+      this.pushEvent("REVEAL_STARTED", `رصد مباشر شغال لمدة ${Math.round(durMs / 1000)} ثانية`, nowMs);
     }
 
     shrinkZone(nowMs = this.state.nowMs) {

@@ -4,9 +4,11 @@ window.Kameen = window.Kameen || {};
 
 (function (K) {
   K.CONFIG = {
+    VERSION: "v4.0",
     LOGO_PATH: "./logo.jpg",
     DEFAULT_CENTER: { lat: 29.9753, lng: 30.9455, accuracyMeters: 6 },
-    DEFAULT_GROQ_KEY: "", // الصقه مرة واحدة من الإعدادات جوه التطبيق (مش بيترفع على GitHub)
+    // الصق مفتاح Groq هنا لو هترفع مباشر على Vercel أو في Repo خاص (أو احفظه مرة واحدة من قائمة الإعدادات ☰)
+    DEFAULT_GROQ_KEY: "",
     SUPABASE_URL: "https://raxycqblimomlwfcwxml.supabase.co",
     SUPABASE_KEY: "sb_publishable_4Y6UnQ9dr4yoBPyme7smYg_7oTDlxKr",
   };
@@ -15,13 +17,13 @@ window.Kameen = window.Kameen || {};
     ZONE_SHRINK_INTERVAL_MS: 180000,   // كل 3 دقايق الزون تصغر 25%
     ZONE_SHRINK_FACTOR: 0.75,
     OUTSIDE_ZONE_GRACE_MS: 20000,      // 20 ثانية بره الزون وتطير
-    ACTIVE_START_GRACE_MS: 25000,      // 25 ثانية أمان بعد التشتيت
-    REVEAL_INTERVAL_MS: 180000,        // رادار عام كل 3 دقايق
-    REVEAL_DURATION_MS: 20000,
-    SHOWDOWN_REVEAL_INTERVAL_MS: 45000,// في الخاتمة السخنة: رادار كل 45 ثانية
-    SHOWDOWN_REVEAL_DURATION_MS: 8000,
-    KILL_COOLDOWN_MS: 75000,
-    SHOWDOWN_KILL_COOLDOWN_MS: 40000,
+    ACTIVE_START_GRACE_MS: 20000,      // 20 ثانية أمان بعد التشتيت
+    DEFAULT_REVEAL_INTERVAL_SEC: 120,  // الافتراضي: قراءة متجددة لكل اللاعبين كل دقيقتين (قابل للتعديل من الإعدادات)
+    DEFAULT_REVEAL_MODE: "ping",       // "ping" = قراءة ثابتة تتجدد كل X دقيقة | "live" = تتبع لايف 15ث
+    LIVE_REVEAL_DURATION_MS: 15000,
+    SHOWDOWN_REVEAL_INTERVAL_MS: 45000,
+    KILL_COOLDOWN_MS: 65000,
+    SHOWDOWN_KILL_COOLDOWN_MS: 35000,
     KILL_BASE_DISTANCE_M: 8,
     NEARBY_TARGET_DISTANCE_M: 40,
     REPORT_BODY_DISTANCE_M: 20,
@@ -30,18 +32,18 @@ window.Kameen = window.Kameen || {};
     AIRDROP_DURATION_MS: 75000,
     AIRDROP_CLAIM_RANGE_M: 24,
     AIRDROP_REWARD_POINTS: 45,
-    // Investigator Powers (أدوات المحقق)
+    // Investigator Powers
     PROTECTION_COST: 15,
     PROTECTION_DURATION_MS: 15000,
     LOCATION_QUESTION_COST: 20,
     BOLD_HINT_COST: 60,
     SPOKEN_PENALTY_POINTS: 25,
-    // Imposter Powers (ألاعيب الغدار)
-    BLOODHOUND_COST: 20,               // رادار الصيد: أقرب ضحية
-    DECOY_COST: 25,                    // إشارة حمرا وهمية
+    // Imposter Powers
+    BLOODHOUND_COST: 20,
+    DECOY_COST: 25,
     DECOY_DURATION_MS: 15000,
-    PLANT_RUMOR_COST: 15,              // تسريب إشاعة مضللة للكل
-    JAMMER_COST: 35,                   // تكتيم المحلل وفصل الرادار
+    PLANT_RUMOR_COST: 15,
+    JAMMER_COST: 35,
     JAMMER_DELAY_MS: 75000,
     // Broker Secret Deals
     BROKER_MINUTE_4_MS: 210000,
@@ -55,7 +57,7 @@ window.Kameen = window.Kameen || {};
   };
 
   K.AVATAR_COLORS = [
-    "#E11D48", "#0284C7", "#D97706", "#059669", "#7C3AED", "#DB2777", "#0D9488", "#EA580C"
+    "#EF233C", "#0284C7", "#D97706", "#10B981", "#8B5CF6", "#EC4899", "#14B8A6", "#F97316"
   ];
 
   K.BOT_NAMES = [
@@ -65,21 +67,21 @@ window.Kameen = window.Kameen || {};
   K.BOT_SLANG_LINES = [
     "والله العظيم ما أنا يا جدعان كنت رايح أخلص مهمتي!",
     "يا عم أنا لمحت واحد طار جري من قدامي من شوية!",
-    "اللي ساكت ومش بيتكلم ده هو الغدّار على ضمانتي 👀",
+    "اللي ساكت ومش بيتكلم ده هو الغدّار على ضمانتي",
     "اقروا تقرير المحلل تاني يا رجالة شوفوا مين كان قريب من المكان!",
     "استنوا نعمل تخطي المرة دي عشان مفيش دليل أكيد.",
     "أنا كنت لوحدي بعيد ومكنش في حد جنبي خالص!",
-    "يا جدعان في حد كان مكمبر مكانه بقاله حبة.. اعترف مين؟ 😂",
+    "يا جدعان في حد كان واقف مكانه بقاله حبة.. اعترف مين؟",
     "لو طردتوني هتندموا والغدّار هيكسب الجيم!",
   ];
 
   K.QUICK_CHAT_LINES = [
-    "والله ما أنا! 😂",
-    "كنت بعمل مهمة 🎯",
-    "شاكك في الساكت 👀",
+    "والله ما أنا!",
+    "كنت بعمل مهمة",
+    "شاكك في الساكت",
     "مين كان قريب من المكان؟",
-    "تخطي يا جدعان ⏭️",
-    "اقفشوه هو الغدّار! 🔪"
+    "تخطي يا جدعان",
+    "اقفشوه هو الغدّار!"
   ];
 
   K.SFX = {
@@ -89,6 +91,15 @@ window.Kameen = window.Kameen || {};
       this.muted = !this.muted;
       try { localStorage.setItem("kameen_muted", this.muted ? "1" : "0"); } catch {}
       if (!this.muted) this.play("click");
+    },
+    warmup() {
+      try {
+        if (!this.ctx) {
+          const AC = window.AudioContext || window.webkitAudioContext;
+          if (AC) this.ctx = new AC();
+        }
+        if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+      } catch {}
     },
     play(type) {
       if (this.muted) return;
@@ -100,7 +111,7 @@ window.Kameen = window.Kameen || {};
         if (!this.ctx) return;
         if (this.ctx.state === "suspended") this.ctx.resume();
         const now = this.ctx.currentTime;
-        const tone = (freq, dur, delay = 0, wave = "sine", vol = 0.12) => {
+        const tone = (freq, dur, delay = 0, wave = "sine", vol = 0.11) => {
           const osc = this.ctx.createOscillator();
           const gain = this.ctx.createGain();
           osc.type = wave;
@@ -112,33 +123,24 @@ window.Kameen = window.Kameen || {};
           osc.start(now + delay);
           osc.stop(now + delay + dur);
         };
-        if (type === "intel") { tone(660, 0.11, 0); tone(920, 0.18, 0.12); }
-        else if (type === "alarm") { tone(460, 0.22, 0, "sawtooth", 0.14); tone(330, 0.28, 0.24, "sawtooth", 0.14); if (navigator.vibrate) navigator.vibrate([180, 80, 220]); }
-        else if (type === "kill") { tone(175, 0.34, 0, "square", 0.15); if (navigator.vibrate) navigator.vibrate([260, 100, 260]); }
-        else if (type === "broker") { tone(520, 0.09, 0, "triangle"); tone(780, 0.11, 0.1, "triangle"); tone(1040, 0.2, 0.22, "triangle"); if (navigator.vibrate) navigator.vibrate([90, 60, 110]); }
-        else if (type === "airdrop") { tone(587, 0.1, 0, "triangle"); tone(880, 0.18, 0.11, "triangle"); if (navigator.vibrate) navigator.vibrate([80, 50, 80]); }
-        else if (type === "win") { tone(523, 0.13, 0); tone(659, 0.13, 0.14); tone(784, 0.24, 0.28); }
-        else if (type === "radar") { tone(980, 0.09, 0, "sine", 0.07); tone(1420, 0.16, 0.09, "sine", 0.045); }
+        if (type === "intel") { tone(660, 0.10, 0); tone(920, 0.16, 0.11); }
+        else if (type === "alarm") { tone(440, 0.20, 0, "sawtooth", 0.13); tone(320, 0.26, 0.22, "sawtooth", 0.13); if (navigator.vibrate) navigator.vibrate([160, 80, 200]); }
+        else if (type === "kill") { tone(165, 0.30, 0, "square", 0.14); if (navigator.vibrate) navigator.vibrate([220, 90, 220]); }
+        else if (type === "broker") { tone(520, 0.08, 0, "triangle"); tone(780, 0.10, 0.09, "triangle"); tone(1040, 0.18, 0.20, "triangle"); if (navigator.vibrate) navigator.vibrate([80, 50, 100]); }
+        else if (type === "airdrop") { tone(587, 0.09, 0, "triangle"); tone(880, 0.16, 0.10, "triangle"); if (navigator.vibrate) navigator.vibrate([70, 45, 70]); }
+        else if (type === "win") { tone(523, 0.12, 0); tone(659, 0.12, 0.13); tone(784, 0.22, 0.26); }
+        else if (type === "radar") { tone(920, 0.08, 0, "sine", 0.065); tone(1380, 0.14, 0.08, "sine", 0.045); }
         else if (type === "heartbeat_warm") {
-          tone(68, 0.11, 0, "sine", 0.14);
-          tone(54, 0.13, 0.16, "sine", 0.10);
-          if (navigator.vibrate) navigator.vibrate([32, 95, 24]);
+          tone(68, 0.10, 0, "sine", 0.13);
+          tone(54, 0.12, 0.15, "sine", 0.09);
+          if (navigator.vibrate) navigator.vibrate([28, 85, 22]);
         }
         else if (type === "heartbeat_crit") {
-          tone(76, 0.11, 0, "triangle", 0.20);
-          tone(58, 0.13, 0.14, "sine", 0.16);
-          if (navigator.vibrate) navigator.vibrate([55, 75, 45]);
+          tone(76, 0.10, 0, "triangle", 0.18);
+          tone(58, 0.12, 0.13, "sine", 0.14);
+          if (navigator.vibrate) navigator.vibrate([50, 70, 42]);
         }
-        else if (type === "click") { tone(540, 0.04, 0, "sine", 0.055); if (navigator.vibrate) navigator.vibrate(10); }
-      } catch {}
-    },
-    warmup() {
-      try {
-        if (!this.ctx) {
-          const AC = window.AudioContext || window.webkitAudioContext;
-          if (AC) this.ctx = new AC();
-        }
-        if (this.ctx && this.ctx.state === "suspended") this.ctx.resume();
+        else if (type === "click") { tone(540, 0.035, 0, "sine", 0.05); if (navigator.vibrate) navigator.vibrate(8); }
       } catch {}
     }
   };
@@ -162,7 +164,7 @@ window.Kameen = window.Kameen || {};
     document.body.classList.remove("screen-shake");
     void document.body.offsetWidth;
     document.body.classList.add("screen-shake");
-    setTimeout(() => document.body.classList.remove("screen-shake"), 400);
+    setTimeout(() => document.body.classList.remove("screen-shake"), 360);
   };
 
   K.setDangerVignette = function (active) {
@@ -212,7 +214,7 @@ window.Kameen = window.Kameen || {};
     try { localStorage.setItem("kameen_stats_v3", JSON.stringify(s)); } catch {}
   };
 
-  K.showToast = function (msg, ms = 3600) {
+  K.showToast = function (msg, ms = 3200) {
     if (!K.state) return;
     K.state.toast = msg;
     const root = document.getElementById("toast-root");
