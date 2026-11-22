@@ -1,58 +1,60 @@
 /* ============================================================
-   KAMEEN v4.0 — TACTICAL OLED UI (ZERO LAG / ZERO OVERLAP)
-   Pure #000000 AMOLED + Matte Carbon Surfaces + Razor Hairlines
+   KAMEEN v5.0 — PRO TACTICAL OLED DESIGN SYSTEM
+   Pure #000000 AMOLED • Matte Carbon Elevation • Zero Blur Lag
    ============================================================ */
 :root {
   --bg: #000000;
-  --surface: #0B0B0E;
-  --surface-2: #121217;
-  --surface-3: #191921;
-  --border: #1F1F28;
-  --border-strong: #2C2C38;
+  --surface: #0A0A0D;
+  --surface-2: #121218;
+  --surface-3: #1A1A23;
+  --border: #1E1E27;
+  --border-strong: #2D2D3B;
+  --bevel: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 
   --crimson: #EF233C;
   --crimson-bright: #FF3B53;
+  --crimson-deep: #B9152B;
   --crimson-tint: rgba(239, 35, 60, 0.12);
   --crimson-border: rgba(239, 35, 60, 0.48);
 
   --emerald: #10B981;
   --emerald-tint: rgba(16, 185, 129, 0.12);
-  --emerald-border: rgba(16, 185, 129, 0.45);
+  --emerald-border: rgba(16, 185, 129, 0.46);
 
   --cyan: #38BDF8;
   --cyan-tint: rgba(56, 189, 248, 0.12);
-  --cyan-border: rgba(56, 189, 248, 0.45);
+  --cyan-border: rgba(56, 189, 248, 0.46);
 
   --amber: #F59E0B;
   --amber-tint: rgba(245, 158, 11, 0.14);
   --amber-border: rgba(245, 158, 11, 0.48);
 
-  --text: #F4F4F6;
-  --muted: #848494;
-  --dim: #555564;
+  --text: #F5F5F7;
+  --muted: #868696;
+  --dim: #535362;
 
   --role-accent: #EF233C;
   --role-tint: rgba(239, 35, 60, 0.14);
-  --role-border: rgba(239, 35, 60, 0.48);
+  --role-border: rgba(239, 35, 60, 0.50);
 }
 
 body[data-role="imposter"] {
   --role-accent: #EF233C;
-  --role-tint: rgba(239, 35, 60, 0.15);
-  --role-border: rgba(239, 35, 60, 0.55);
+  --role-tint: rgba(239, 35, 60, 0.16);
+  --role-border: rgba(239, 35, 60, 0.56);
 }
 
 body[data-role="investigator"] {
   --role-accent: #38BDF8;
-  --role-tint: rgba(56, 189, 248, 0.14);
-  --role-border: rgba(56, 189, 248, 0.50);
+  --role-tint: rgba(56, 189, 248, 0.15);
+  --role-border: rgba(56, 189, 248, 0.52);
 }
 
 body[data-role="ghost"],
 body[data-role="spectator"] {
   --role-accent: #94A3B8;
   --role-tint: rgba(148, 163, 184, 0.14);
-  --role-border: rgba(148, 163, 184, 0.40);
+  --role-border: rgba(148, 163, 184, 0.42);
 }
 
 * {
@@ -82,6 +84,7 @@ html, body {
 
 .hidden { display: none !important; }
 .tnum { font-variant-numeric: tabular-nums; }
+.mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 
 body.screen-shake {
   animation: shakeFx 0.28s ease-out both;
@@ -97,8 +100,8 @@ body.screen-shake {
   inset: 0;
   pointer-events: none;
   z-index: 340;
-  border: 3px solid rgba(239, 35, 60, 0.85);
-  box-shadow: inset 0 0 48px rgba(239, 35, 60, 0.55);
+  border: 3px solid rgba(239, 35, 60, 0.88);
+  box-shadow: inset 0 0 52px rgba(239, 35, 60, 0.56);
 }
 
 #heartbeat-vignette {
@@ -108,20 +111,79 @@ body.screen-shake {
   z-index: 335;
 }
 #heartbeat-vignette.warm {
-  box-shadow: inset 0 0 45px rgba(239, 35, 60, 0.42);
-  animation: hbPulse 1.5s ease-in-out infinite;
+  box-shadow: inset 0 0 46px rgba(239, 35, 60, 0.44);
+  animation: hbPulse 1.45s ease-in-out infinite;
 }
 #heartbeat-vignette.critical {
-  box-shadow: inset 0 0 80px rgba(239, 35, 60, 0.78);
-  animation: hbPulse 0.8s ease-in-out infinite;
+  box-shadow: inset 0 0 86px rgba(239, 35, 60, 0.82);
+  animation: hbPulse 0.78s ease-in-out infinite;
 }
 @keyframes hbPulse {
-  0%, 100% { opacity: 0.25; }
-  45% { opacity: 0.95; }
+  0%, 100% { opacity: 0.22; }
+  45% { opacity: 0.96; }
 }
 
 /* ============================================================
-   APP SHELL (HideZone-Inspired Matte OLED Architecture)
+   PURE #000000 AMOLED POCKET SHIELD OVERLAY
+   ============================================================ */
+.pocket-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: #000000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  touch-action: manipulation;
+}
+
+.pocket-inner {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  max-width: 300px;
+}
+
+.pocket-badge {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  color: #52525E;
+  border: 1px solid #1C1C24;
+  border-radius: 99px;
+  padding: 4px 12px;
+}
+
+.pocket-clock {
+  font-size: 46px;
+  font-weight: 800;
+  color: #3F3F4A;
+  letter-spacing: 2px;
+  line-height: 1.05;
+}
+
+.pocket-status {
+  font-size: 13px;
+  font-weight: 800;
+  color: #5A5A68;
+}
+.pocket-status.danger {
+  color: var(--crimson);
+}
+
+.pocket-hint {
+  margin-top: 28px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #363640;
+}
+
+/* ============================================================
+   APP SHELL
    ============================================================ */
 .app-shell {
   max-width: 480px;
@@ -141,7 +203,7 @@ body.screen-shake {
   justify-content: space-between;
   gap: 10px;
   background: #000000;
-  border-bottom: 1px solid #16161C;
+  border-bottom: 1px solid #15151C;
   z-index: 20;
 }
 
@@ -150,7 +212,7 @@ body.screen-shake {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 14px 16px 26px;
+  padding: 14px 16px 28px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -163,8 +225,8 @@ body.screen-shake {
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
   padding: 8px 14px max(10px, env(safe-area-inset-bottom));
-  background: #070709;
-  border-top: 1px solid #1A1A22;
+  background: #060608;
+  border-top: 1px solid #181822;
   z-index: 20;
 }
 
@@ -177,12 +239,14 @@ body.screen-shake {
   align-items: center;
   justify-content: center;
   gap: 3px;
-  padding: 6px 4px;
+  padding: 7px 4px;
   border-radius: 12px;
   font-family: inherit;
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
+  position: relative;
+  transition: background 0.15s, color 0.15s;
 }
 .tab-item svg {
   width: 20px; height: 20px;
@@ -194,23 +258,105 @@ body.screen-shake {
   background: var(--crimson-tint);
   border-color: var(--crimson-border);
 }
+.tab-item.active::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  width: 26px;
+  height: 2px;
+  border-radius: 99px;
+  background: var(--crimson);
+}
 .tab-item.active svg { stroke: var(--crimson); }
 .tab-item:active { transform: scale(0.95); }
 
 /* ============================================================
-   TACTICAL SURFACES, TYPOGRAPHY & CONTROLS
+   TACTICAL SURFACES, RADAR HERO & PRECISION CONTROLS
    ============================================================ */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 14px;
+  box-shadow: var(--bevel);
 }
+
+.card-elevated {
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: var(--bevel);
+}
+
+/* Tactical Hero Radar Card (Home Screen) */
+.hero-radar-card {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(135deg, #110609 0%, #0A0A0E 65%);
+  border: 1px solid var(--crimson-border);
+  border-radius: 18px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: var(--bevel);
+}
+
+.hero-radar-svg {
+  width: 74px;
+  height: 74px;
+  flex-shrink: 0;
+}
+
+.radar-sweep-arm {
+  transform-origin: 40px 40px;
+  animation: radarSpin 4.2s linear infinite;
+}
+@keyframes radarSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.radar-blip {
+  animation: blipPulse 2.1s ease-in-out infinite;
+}
+@keyframes blipPulse {
+  0%, 100% { opacity: 0.25; }
+  50% { opacity: 1; }
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.live-dot.green { background: var(--emerald); box-shadow: 0 0 8px rgba(16, 185, 129, 0.7); }
+.live-dot.red { background: var(--crimson); box-shadow: 0 0 8px rgba(239, 35, 60, 0.7); }
+.live-dot.amber { background: var(--amber); }
+
+/* Clickable Lobby Code Banner */
+.lobby-code-banner {
+  background: linear-gradient(180deg, #12090C 0%, #0A0A0D 100%);
+  border: 1px solid var(--crimson-border);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+  box-shadow: var(--bevel);
+}
+.lobby-code-banner:active { transform: scale(0.985); }
 
 .eyebrow {
   font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.9px;
+  letter-spacing: 1px;
   text-transform: uppercase;
   color: var(--muted);
 }
@@ -218,23 +364,23 @@ body.screen-shake {
 .ver-pill {
   display: inline-flex;
   align-items: center;
-  padding: 2px 8px;
-  border-radius: 8px;
-  background: #14141A;
-  border: 1px solid #242430;
+  padding: 2px 7px;
+  border-radius: 7px;
+  background: #14141B;
+  border: 1px solid #262634;
   color: var(--muted);
-  font-size: 10.5px;
+  font-size: 10px;
   font-weight: 800;
-  font-family: monospace;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .brand-logo-lg {
-  width: 60px; height: 60px;
+  width: 62px; height: 62px;
   border-radius: 16px;
-  border: 1px solid var(--crimson-border);
+  border: 1.5px solid var(--crimson-border);
 }
 .brand-logo-sm {
-  width: 34px; height: 34px;
+  width: 36px; height: 36px;
   border-radius: 10px;
   border: 1px solid var(--border-strong);
 }
@@ -250,6 +396,7 @@ body.screen-shake {
   justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
+  box-shadow: var(--bevel);
 }
 .icon-btn:active { background: var(--surface-3); transform: scale(0.94); }
 .icon-btn svg {
@@ -257,24 +404,25 @@ body.screen-shake {
   stroke: currentColor; fill: none;
   stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round;
 }
-.icon-btn.accent-icon { color: var(--crimson); }
+.icon-btn.accent-icon { color: var(--crimson); border-color: var(--crimson-border); background: var(--crimson-tint); }
 
 .input {
   width: 100%;
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid var(--border-strong);
-  background: var(--surface-2);
+  background: #0F0F14;
   color: var(--text);
   font-family: inherit;
   font-weight: 700;
   font-size: 14px;
   outline: none;
+  transition: border-color 0.15s;
 }
-.input:focus { border-color: var(--crimson); }
+.input:focus { border-color: var(--crimson); background: #13131A; }
 .input::placeholder { color: var(--dim); }
 
-/* HideZone-Style Crisp Flat/Outline Buttons */
+/* Crisp Tactile Flat/Outline Buttons */
 .btn {
   border: 1px solid var(--border-strong);
   border-radius: 12px;
@@ -290,13 +438,15 @@ body.screen-shake {
   color: var(--text);
   background: var(--surface-2);
   text-decoration: none;
+  box-shadow: var(--bevel);
+  transition: transform 0.12s, background 0.12s;
 }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: 0.36; cursor: not-allowed; transform: none; }
 
 .btn-primary {
-  background: var(--crimson);
-  border-color: var(--crimson-bright);
+  background: linear-gradient(180deg, var(--crimson-bright) 0%, var(--crimson) 100%);
+  border-color: #FF596E;
   color: #FFFFFF;
 }
 
@@ -374,7 +524,7 @@ body.screen-shake {
 .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .grid-5 { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; }
 
-/* HideZone-Style Summary Counter Card (Red & Green vertical bars) */
+/* HideZone Pro Summary Counter Card */
 .hz-stats-card {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -384,6 +534,7 @@ body.screen-shake {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 14px 16px;
+  box-shadow: var(--bevel);
 }
 
 .hz-stat-col {
@@ -394,16 +545,16 @@ body.screen-shake {
 .hz-stat-col.end { justify-content: flex-end; }
 .hz-bar {
   width: 3px;
-  height: 30px;
+  height: 32px;
   border-radius: 3px;
   flex-shrink: 0;
 }
 .hz-bar.red { background: var(--crimson); }
 .hz-bar.green { background: var(--emerald); }
-.hz-stat-num { font-size: 20px; font-weight: 900; line-height: 1; }
+.hz-stat-num { font-size: 21px; font-weight: 900; line-height: 1; }
 .hz-stat-lbl { font-size: 10.5px; font-weight: 800; color: var(--muted); margin-top: 3px; }
 
-/* HideZone-Style Player Row */
+/* HideZone Pro Player Row */
 .player-row {
   display: flex;
   align-items: center;
@@ -427,7 +578,7 @@ body.screen-shake {
   flex-shrink: 0;
 }
 
-/* Native HideZone Toggle Switch */
+/* Native Toggle Switch */
 .toggle-card {
   display: flex;
   align-items: center;
@@ -438,12 +589,13 @@ body.screen-shake {
   border-radius: 14px;
   padding: 12px 14px;
   cursor: pointer;
+  box-shadow: var(--bevel);
 }
 .hz-switch {
   width: 44px; height: 24px;
   border-radius: 99px;
-  background: #23232D;
-  border: 1px solid #323240;
+  background: #22222C;
+  border: 1px solid #323242;
   position: relative;
   flex-shrink: 0;
   transition: background 0.18s;
@@ -484,7 +636,7 @@ body.screen-shake {
 }
 
 /* ============================================================
-   FULL-BLEED ZERO-OVERLAP RADAR SCREEN (FLEX BOUNDED SHELL)
+   FULL-BLEED ZERO-OVERLAP RADAR SCREEN
    ============================================================ */
 #map-screen {
   position: fixed;
@@ -520,7 +672,6 @@ body.screen-shake {
   cursor: crosshair;
 }
 
-/* Bounded Flex Overlay guarantees Top / Side / Bottom NEVER overlap! */
 .map-hud-shell {
   position: fixed;
   inset: 0;
@@ -568,9 +719,8 @@ body.screen-shake {
 }
 .hud-zone-bottom > * { pointer-events: auto; }
 
-/* Crisp Solid Matte Top Bar (Zero Blur Lag!) */
 .hud-topbar {
-  background: rgba(9, 9, 12, 0.94);
+  background: rgba(9, 9, 13, 0.95);
   border: 1px solid var(--border-strong);
   border-radius: 14px;
   padding: 8px 10px;
@@ -578,17 +728,27 @@ body.screen-shake {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  box-shadow: var(--bevel);
 }
 body[data-role="imposter"] .hud-topbar { border-color: var(--crimson-border); }
 body[data-role="investigator"] .hud-topbar { border-color: var(--cyan-border); }
 
+.hud-telemetry-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #1A1A24;
+}
+
 .inv-progress-track {
-  width: 100%;
+  flex: 1;
   height: 4px;
   background: #1B1B24;
   border-radius: 99px;
   overflow: hidden;
-  margin-top: 6px;
 }
 .inv-progress-fill {
   height: 100%;
@@ -596,9 +756,8 @@ body[data-role="investigator"] .hud-topbar { border-color: var(--cyan-border); }
   transition: width 0.3s ease;
 }
 
-/* Single Priority Status Ticker (Never stacks 5 overlapping banners!) */
 .hud-ticker {
-  background: rgba(11, 11, 15, 0.94);
+  background: rgba(11, 11, 15, 0.95);
   border: 1px solid var(--border-strong);
   border-right: 3px solid var(--role-accent);
   border-radius: 12px;
@@ -622,18 +781,18 @@ body[data-role="investigator"] .hud-topbar { border-color: var(--cyan-border); }
   color: #FDE68A;
 }
 
-/* Compact Right Side Tactical Rail (3 buttons max) */
 .map-fab {
   width: 42px; height: 42px;
   border-radius: 12px;
   border: 1px solid var(--border-strong);
-  background: rgba(11, 11, 15, 0.92);
+  background: rgba(11, 11, 15, 0.94);
   color: var(--text);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
+  box-shadow: var(--bevel);
 }
 .map-fab svg {
   width: 19px; height: 19px;
@@ -644,25 +803,26 @@ body[data-role="investigator"] .hud-topbar { border-color: var(--cyan-border); }
 .map-fab.active-fab {
   border-color: var(--role-accent);
   color: var(--role-accent);
-  background: #13131A;
+  background: #14141D;
 }
 
-/* Bottom HUD Solid Card & Role Dock */
 .hud-panel {
-  background: rgba(10, 10, 14, 0.95);
+  background: rgba(10, 10, 14, 0.96);
   border: 1px solid var(--border-strong);
   border-radius: 16px;
   padding: 12px;
+  box-shadow: var(--bevel);
 }
 
 .role-dock {
-  background: rgba(9, 9, 12, 0.96);
+  background: rgba(9, 9, 13, 0.97);
   border: 1px solid var(--border-strong);
   border-radius: 16px;
   padding: 5px;
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
+  box-shadow: var(--bevel);
 }
 body[data-role="imposter"] .role-dock { border-color: var(--crimson-border); }
 body[data-role="investigator"] .role-dock { border-color: var(--cyan-border); }
@@ -698,11 +858,12 @@ body[data-role="investigator"] .role-dock { border-color: var(--cyan-border); }
 }
 .dock-badge {
   position: absolute;
-  top: 3px; left: 8px;
+  top: 3px; left: 7px;
   background: var(--role-accent);
   color: #000000;
+  font-family: 'JetBrains Mono', monospace;
   font-size: 9px;
-  font-weight: 900;
+  font-weight: 800;
   padding: 0 5px;
   border-radius: 99px;
   min-width: 15px;
@@ -728,7 +889,6 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
 .hero-action-fab:active { transform: scale(0.95); }
 .hero-action-fab:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* Simulation D-Pad */
 .sim-dpad {
   display: grid;
   grid-template-columns: repeat(3, 38px);
@@ -749,12 +909,12 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
 .dpad-btn:active { background: var(--crimson); }
 
 /* ============================================================
-   FAST SLIDE-UP BOTTOM SHEETS & MODALS (ZERO BLUR LAG)
+   FAST SLIDE-UP BOTTOM SHEETS & CLASSIFIED DOSSIER MODALS
    ============================================================ */
 .sheet-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.78);
+  background: rgba(0, 0, 0, 0.80);
   display: flex;
   align-items: flex-end;
   justify-content: center;
@@ -764,9 +924,9 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
 .bottom-sheet {
   width: 100%;
   max-width: 480px;
-  max-height: 86dvh;
-  background: #0B0B0E;
-  border-top: 1px solid #2A2A36;
+  max-height: 87dvh;
+  background: #0A0A0D;
+  border-top: 1px solid #2D2D3B;
   border-radius: 22px 22px 0 0;
   padding: 10px 16px max(20px, env(safe-area-inset-bottom));
   display: flex;
@@ -776,7 +936,7 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
   animation: sheetUp 0.18s ease-out;
 }
 @keyframes sheetUp {
-  from { transform: translateY(36px); opacity: 0.6; }
+  from { transform: translateY(34px); opacity: 0.65; }
   to { transform: translateY(0); opacity: 1; }
 }
 
@@ -800,7 +960,7 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
 .center-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.92);
+  background: rgba(0, 0, 0, 0.94);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -808,15 +968,50 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
   z-index: 900;
 }
 
-.role-card-glow {
+/* Classified Role Dossier Card */
+.dossier-card {
+  position: relative;
+  overflow: hidden;
   border-radius: 20px;
-  padding: 24px 20px;
+  padding: 24px 20px 20px;
   text-align: center;
-  background: #0D0D11;
+  background: #0B0B10;
   border: 1.5px solid var(--border-strong);
+  max-width: 348px;
+  width: 100%;
+  box-shadow: var(--bevel);
 }
-.role-card-glow.imposter { border-color: var(--crimson); background: #14080B; }
-.role-card-glow.investigator { border-color: var(--cyan); background: #071017; }
+.dossier-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 4px;
+  background: var(--crimson);
+}
+.dossier-card.imposter {
+  border-color: var(--crimson);
+  background: linear-gradient(180deg, #18080C 0%, #0B0B0F 100%);
+}
+.dossier-card.investigator {
+  border-color: var(--cyan);
+  background: linear-gradient(180deg, #07131B 0%, #0B0B0F 100%);
+}
+.dossier-card.investigator::before {
+  background: var(--cyan);
+}
+
+.classified-stamp {
+  display: inline-block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  padding: 3px 10px;
+  border-radius: 6px;
+  border: 1px dashed var(--crimson-border);
+  color: #FF6B7D;
+  background: var(--crimson-tint);
+}
 
 .toast {
   position: fixed;
@@ -824,7 +1019,7 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
   left: 50%;
   transform: translateX(-50%);
   z-index: 9999;
-  background: #14141A;
+  background: #14141C;
   border: 1px solid var(--crimson);
   color: #fff;
   padding: 9px 16px;
@@ -848,8 +1043,9 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
   font-family: inherit;
   cursor: pointer;
   text-align: right;
+  box-shadow: var(--bevel);
 }
-.power-tile:active { background: var(--surface-3); }
+.power-tile:active { background: var(--surface-3); transform: scale(0.985); }
 .power-tile:disabled { opacity: 0.36; cursor: not-allowed; }
 
 .chat-box {
@@ -999,15 +1195,14 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
 
 body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
 
-
 /* ============================================================
-   IN-APP LIVE CAMERA & VIDEO RECORDER (ZERO PAGE RELOAD)
+   IN-APP TACTICAL LIVE CAMERA & VIEWFINDER RETICLE
    ============================================================ */
 .cam-stage {
   position: relative;
   width: 100%;
   aspect-ratio: 4 / 3;
-  max-height: 290px;
+  max-height: 270px;
   background: #050507;
   border: 1px solid var(--border-strong);
   border-radius: 14px;
@@ -1024,6 +1219,25 @@ body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
   display: block;
   background: #000000;
 }
+
+/* Tactical Corner Viewfinder Brackets */
+.cam-reticle {
+  position: absolute;
+  inset: 12px;
+  pointer-events: none;
+  z-index: 2;
+}
+.cam-reticle span {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-color: rgba(255, 255, 255, 0.55);
+  border-style: solid;
+}
+.cam-reticle .tl { top: 0; left: 0; border-width: 2px 0 0 2px; border-radius: 3px 0 0 0; }
+.cam-reticle .tr { top: 0; right: 0; border-width: 2px 2px 0 0; border-radius: 0 3px 0 0; }
+.cam-reticle .bl { bottom: 0; left: 0; border-width: 0 0 2px 2px; border-radius: 0 0 0 3px; }
+.cam-reticle .br { bottom: 0; right: 0; border-width: 0 2px 2px 0; border-radius: 0 0 3px 0; }
 
 .cam-overlay-top {
   position: absolute;
@@ -1044,7 +1258,7 @@ body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
   gap: 6px;
   padding: 4px 10px;
   border-radius: 99px;
-  background: rgba(20, 6, 9, 0.92);
+  background: rgba(20, 6, 9, 0.94);
   border: 1px solid var(--crimson);
   color: #FFFFFF;
   font-size: 11px;
@@ -1061,6 +1275,22 @@ body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
 @keyframes camBlink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.25; }
+}
+
+.cam-progress-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.12);
+  z-index: 5;
+}
+.cam-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--crimson);
+  transition: width 0.2s linear;
 }
 
 .cam-mini-btn {
@@ -1086,7 +1316,7 @@ body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
   gap: 8px;
   padding: 16px;
   text-align: center;
-  background: rgba(5, 5, 8, 0.86);
+  background: rgba(5, 5, 8, 0.88);
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;

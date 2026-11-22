@@ -13,9 +13,9 @@
   <link rel="manifest" href="./manifest.json" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=15" />
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -24,7 +24,17 @@
   <div id="heartbeat-vignette" class="hidden"></div>
   <div id="toast-root"></div>
 
-  <!-- Non-Map Tactical App Shell (Permissions Gate / Home / Lobby / Meeting / Result / HowTo / Profile) -->
+  <!-- Pure #000000 AMOLED Pocket Lock Overlay (Saves battery + blocks accidental pocket taps while keeping GPS alive) -->
+  <div id="pocket-overlay" class="pocket-overlay hidden" onclick="onPocketOverlayTap()">
+    <div class="pocket-inner">
+      <div class="pocket-badge">POCKET SHIELD • GPS ACTIVE</div>
+      <div id="pocket-clock" class="pocket-clock mono">00:00</div>
+      <div id="pocket-status" class="pocket-status">داخل الزون • الـ GPS شغال في الخلفية</div>
+      <div id="pocket-unlock-hint" class="pocket-hint">اضغط مرتين سريعاً لفتح الشاشة</div>
+    </div>
+  </div>
+
+  <!-- Non-Map Tactical App Shell -->
   <div id="app-shell" class="app-shell">
     <header id="app-header" class="app-topbar"></header>
     <main id="page-root" class="app-scroll"></main>
@@ -36,7 +46,6 @@
     <div id="persistent-gl-map"></div>
     <svg id="fallback-radar" class="hidden" viewBox="0 0 400 700" preserveAspectRatio="xMidYMid slice"></svg>
 
-    <!-- Bounded Flex Overlay: Guarantees ZERO overlap on any screen size -->
     <div class="map-hud-shell">
       <div id="map-hud-top" class="hud-zone-top"></div>
       <div class="hud-zone-mid">
@@ -50,13 +59,13 @@
   <!-- Tactical Slide-Up Drawers & Focus Modals -->
   <div id="modal-root"></div>
 
-  <script src="./config.js"></script>
-  <script src="./engine.js"></script>
-  <script src="./location.js"></script>
-  <script src="./ai.js"></script>
-  <script src="./network.js"></script>
-  <script src="./map.js"></script>
-  <script src="./ui.js"></script>
-  <script src="./app.js"></script>
+  <script src="./config.js?v=15"></script>
+  <script src="./engine.js?v=15"></script>
+  <script src="./location.js?v=15"></script>
+  <script src="./ai.js?v=15"></script>
+  <script src="./network.js?v=15"></script>
+  <script src="./map.js?v=15"></script>
+  <script src="./ui.js?v=15"></script>
+  <script src="./app.js?v=15"></script>
 </body>
 </html>

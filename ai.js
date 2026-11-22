@@ -5,6 +5,7 @@ window.Kameen = window.Kameen || {};
 (function (K) {
   let cachedLiveModels = null;
   let cachedModelsAtMs = 0;
+  let cachedWorkingVisionModel = null;
 
   function sanitizeKey(raw) {
     return String(raw || "").replace(/[^\x21-\x7E]/g, "").trim();
@@ -46,16 +47,16 @@ window.Kameen = window.Kameen || {};
       const txt = await res.text();
       try {
         const j = JSON.parse(txt);
-        return String(j?.error?.message || j?.message || txt).slice(0, 140);
+        return String(j?.error?.message || j?.message || txt).slice(0, 180);
       } catch {
-        return txt.slice(0, 140);
+        return txt.slice(0, 180);
       }
     } catch {
       return "";
     }
   }
 
-  // Dynamically fetch live active models from Groq so deprecated model IDs NEVER break the game!
+  // Always fetch live active models from Groq FIRST so we NEVER call a deprecated/404 model ID!
   async function fetchLiveGroqModels(force = false) {
     const key = getGroqKey();
     if (!key) return { ok: false, status: 0, error: "مفيش مفتاح Groq", models: [] };
@@ -93,48 +94,84 @@ window.Kameen = window.Kameen || {};
     }
   }
 
+  function isNonChatModel(id) {
+    return /whisper|tts|orpheus|playai|guard|embed|rerank|safeguard|prompt-guard|distil-whisper|allam/i.test(id);
+  }
+
   function pickVisionModelsFromLive(liveIds) {
-    const preferred = [
-      "meta-llama/llama-4-scout-17b-16e-instruct",
-      "meta-llama/llama-4-maverick-17b-128e-instruct",
-    ];
-    const discovered = (liveIds || []).filter((id) =>
-      /vision|llama-4|scout|maverick|qwen.*vl|pixtral|llava|multimodal/i.test(id) &&
-      !/whisper|tts|guard|embed|prompt-guard|safeguard/i.test(id)
-    );
+    const live = Array.isArray(liveIds) ? liveIds : [];
     const out = [];
-    for (const id of [...preferred, ...discovered]) {
-      if (!out.includes(id)) out.push(id);
+    const addIfLive = (id) => {
+      if (id && live.includes(id) && !out.includes(id) && !isNonChatModel(id)) out.push(id);
+    };
+
+    // 1. Previously verified working vision model comes first!
+    if (cachedWorkingVisionModel) addIfLive(cachedWorkingVisionModel);
+
+    // 2. High-confidence multimodal / vision model patterns (ONLY if actually live on Groq!)
+    const visionPatterns = [
+      /llama-?4.*scout/i,
+      /llama-?4.*maverick/i,
+      /llama-?4/i,
+      /vision/i,
+      /qwen.*vl/i,
+      /pixtral/i,
+      /llava/i,
+      /gemma-?3|gemma-?4/i,
+      /kimi.*vl|kimi-k2\.5|kimi-k2/i,
+      /multimodal|omni|vl-/i,
+    ];
+    for (const pat of visionPatterns) {
+      for (const id of live) {
+        if (pat.test(id)) addIfLive(id);
+      }
+    }
+
+    // 3. Fallback probe candidates (in case Groq launched a vision-capable model with a new name)
+    if (out.length === 0) {
+      for (const id of live) {
+        if (!isNonChatModel(id) && !/compound/i.test(id)) {
+          addIfLive(id);
+          if (out.length >= 4) break;
+        }
+      }
     }
     return out;
   }
 
   function pickChatModelsFromLive(liveIds) {
-    const preferred = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
-    const discovered = (liveIds || []).filter((id) =>
-      /llama|qwen|gemma|mixtral|gpt-oss/i.test(id) &&
-      !/whisper|tts|guard|embed|vision/i.test(id)
-    );
+    const live = Array.isArray(liveIds) ? liveIds : [];
+    const preferred = [
+      "llama-3.3-70b-versatile",
+      "llama-3.1-8b-instant",
+      "meta-llama/llama-4-scout-17b-16e-instruct",
+    ];
     const out = [];
-    for (const id of [...preferred, ...discovered]) {
-      if (!out.includes(id)) out.push(id);
+    for (const p of preferred) {
+      if (live.includes(p) && !out.includes(p)) out.push(p);
     }
-    return out.slice(0, 4);
+    for (const id of live) {
+      if (!isNonChatModel(id) && !out.includes(id)) {
+        out.push(id);
+        if (out.length >= 4) break;
+      }
+    }
+    return out.length ? out : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
   }
 
   function formatFriendlyError(status, detail) {
     const d = String(detail || "");
     if (status === 401 || /invalid.*api.*key|expired|revoked/i.test(d)) {
-      return "مفتاح Groq مرفوض أو ملغي (401) — لو اترفع على GitHub Public جروك بيلغيه تلقائي، اعمل مفتاح جديد من console.groq.com والصقه هنا.";
+      return "مفتاح Groq مرفوض أو ملغي (401) — اعمل مفتاح جديد من console.groq.com والصقه في الإعدادات (≡).";
     }
     if (status === 403) {
-      return `سيرفر Groq رفض الاتصال (403) — اتأكد إن المفتاح شغال وإن مفيش VPN أو حجب على الشبكة. ${d ? "(" + d.slice(0, 60) + ")" : ""}`;
+      return `سيرفر Groq رفض الاتصال (403) — اتأكد إن المفتاح شغال وإن مفيش VPN أو حجب. ${d ? "(" + d.slice(0, 70) + ")" : ""}`;
     }
     if (status === 429) {
       return "ضغط لحظي على سيرفر Groq (429) — استنى 5 ثواني وحاول تاني.";
     }
     if (status === "TIMEOUT") {
-      return "انتهى وقت الاتصال (Timeout) — النت بطيء شوية، صوّر صورة أو فيديو أقصر (3 ثواني) وحاول تاني.";
+      return "انتهى وقت الاتصال (Timeout) — النت بطيء شوية، حاول تاني.";
     }
     if (status === "NETWORK") {
       return "المتصفح مش قادر يوصل لـ api.groq.com — اتأكد من النت أو جرّب تقفل AdBlocker/DNS الخاص.";
@@ -152,18 +189,23 @@ window.Kameen = window.Kameen || {};
     if (!res.ok) {
       return { ok: false, message: formatFriendlyError(res.status, res.error) };
     }
-    const visionList = pickVisionModelsFromLive(res.models).filter((id) => res.models.includes(id));
-    const vTxt = visionList.length ? visionList[0] : "جاري الفحص";
+    const visionList = pickVisionModelsFromLive(res.models);
+    const whisperList = res.models.filter((id) => /whisper/i.test(id));
+    const vTxt = visionList.length ? visionList[0] : "لا يوجد موديل صور واضح";
+    const wTxt = whisperList.length ? whisperList[0] : "غير متاح";
     return {
       ok: true,
-      message: `متصل بنجاح بسيرفر Groq (${res.models.length} موديل نشط • Vision: ${vTxt})`,
+      message: `متصل بـ Groq (${res.models.length} موديل) • Vision: ${vTxt} • صوت: ${wTxt} • المتاح: ${visionList.slice(0, 3).join(", ") || res.models.slice(0, 4).join(", ")}`,
     };
   }
 
   async function callGroqChat(systemPrompt, userPrompt, maxTokens = 130) {
     const key = getGroqKey();
     if (!key) return null;
-    const models = cachedLiveModels ? pickChatModelsFromLive(cachedLiveModels) : ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"];
+    if (!cachedLiveModels) {
+      await fetchLiveGroqModels(false);
+    }
+    const models = pickChatModelsFromLive(cachedLiveModels || []);
     for (const model of models) {
       try {
         const ctrl = new AbortController();
@@ -241,7 +283,7 @@ window.Kameen = window.Kameen || {};
     }
   }
 
-  // Strict Mission-Specific Vision Verification with Dynamic Model Discovery + Single-Frame Fallback
+  // Strict Mission-Specific Vision Verification: ALWAYS queries live models first — ZERO 404 on dead models!
   async function verifyMissionWithGroqVision(framesB64, mission) {
     const key = getGroqKey();
     if (!key) {
@@ -250,6 +292,21 @@ window.Kameen = window.Kameen || {};
         noKey: true,
         seen: "",
         reason: "لازم تضيف مفتاح Groq AI في الإعدادات (≡) عشان الذكاء الاصطناعي يفحص المهمة!",
+      };
+    }
+
+    // 1. Discover LIVE models on this Groq key BEFORE calling chat/completions
+    const live = await fetchLiveGroqModels(false);
+    if (!live.ok) {
+      return { ok: false, seen: "", reason: formatFriendlyError(live.status, live.error) };
+    }
+
+    const visionModels = pickVisionModelsFromLive(live.models);
+    if (!visionModels.length) {
+      return {
+        ok: false,
+        seen: "",
+        reason: `حساب Groq ده مفيش عليه موديلات صور متاحة حالياً (${live.models.slice(0, 5).join(", ")}).`,
       };
     }
 
@@ -268,31 +325,23 @@ window.Kameen = window.Kameen || {};
       `3. Reply ONLY with valid JSON (no markdown, no extra text):\n` +
       `{"passed": true or false, "seen": "وصف قصير بالعامية المصرية للي شفته في الكاميرا فعلياً", "reason": "تعليق روش قصير بالعامية المصرية يوضح ليه قبلت أو رفضت"}`;
 
-    let visionModels = [
-      "meta-llama/llama-4-scout-17b-16e-instruct",
-      "meta-llama/llama-4-maverick-17b-128e-instruct",
-    ];
-    if (cachedLiveModels) {
-      visionModels = pickVisionModelsFromLive(cachedLiveModels);
-    }
-
     const middleFrame = [framesB64[Math.floor(framesB64.length / 2)] || framesB64[0]];
     const multiFrames = framesB64.slice(0, 3);
 
-    let lastStatus = null;
-    let lastDetail = "";
-    let discoveredOnce = false;
+    let bestErrStatus = null;
+    let bestErrDetail = "";
+    const triedErrors = [];
 
-    for (let idx = 0; idx < visionModels.length; idx++) {
-      const model = visionModels[idx];
+    for (const model of visionModels) {
       let attempt = await postVisionAttempt(key, model, multiFrames, promptText);
 
-      // If multi-frame payload rejected (400 / 413), immediately retry same model with 1 sharp frame!
+      // If multi-frame payload rejected (400 / 413), retry same model with 1 sharp frame (some models allow max 1 image!)
       if (!attempt.ok && multiFrames.length > 1 && (attempt.status === 400 || attempt.status === 413)) {
         attempt = await postVisionAttempt(key, model, middleFrame, promptText);
       }
 
       if (attempt.ok) {
+        cachedWorkingVisionModel = model;
         const raw = attempt.raw;
         const parsed = extractJsonObject(raw);
         if (parsed && typeof parsed.passed === "boolean") {
@@ -309,33 +358,24 @@ window.Kameen = window.Kameen || {};
         return { ok: false, seen: raw.slice(0, 80), reason: "الذكاء الاصطناعي مش شايف المطلوب في الصورة بوضوح، صوّر تاني!" };
       }
 
-      lastStatus = attempt.status;
-      lastDetail = attempt.error;
-
-      // Immediate stop on invalid/revoked key (401) or network/CORS failure
-      if (attempt.status === 401 || attempt.status === 403) {
+      triedErrors.push(`${model}: ${attempt.status}`);
+      if (attempt.status === 401 || attempt.status === 403 || attempt.status === 429) {
         return { ok: false, seen: "", reason: formatFriendlyError(attempt.status, attempt.error) };
       }
 
-      // If model was deprecated/not found (400/404), auto-discover live vision models from Groq!
-      if (!discoveredOnce && (attempt.status === 400 || attempt.status === 404)) {
-        discoveredOnce = true;
-        const live = await fetchLiveGroqModels(true);
-        if (live.ok && live.models.length) {
-          const fresh = pickVisionModelsFromLive(live.models).filter((m) => live.models.includes(m));
-          for (const fm of fresh) {
-            if (!visionModels.includes(fm)) visionModels.push(fm);
-          }
-        } else if (live.status === 401 || live.status === 403) {
-          return { ok: false, seen: "", reason: formatFriendlyError(live.status, live.error) };
-        }
+      // Preserve the most informative error (don't let a generic 404 overwrite a real 400!)
+      if (!bestErrStatus || (bestErrStatus === 404 && attempt.status !== 404)) {
+        bestErrStatus = attempt.status;
+        bestErrDetail = `[${model}] ${attempt.error}`;
       }
     }
 
+    // Force-refresh model cache on next attempt if all candidates failed
+    cachedModelsAtMs = 0;
     return {
       ok: false,
       seen: "",
-      reason: formatFriendlyError(lastStatus, lastDetail),
+      reason: formatFriendlyError(bestErrStatus, bestErrDetail || triedErrors.join(" | ")),
     };
   }
 
@@ -349,7 +389,12 @@ window.Kameen = window.Kameen || {};
       return { checked: false, ok: true, transcript: "" };
     }
 
-    const whisperModels = ["whisper-large-v3-turbo", "whisper-large-v3"];
+    let whisperModels = ["whisper-large-v3-turbo", "whisper-large-v3"];
+    if (cachedLiveModels && cachedLiveModels.length) {
+      const liveW = cachedLiveModels.filter((id) => /whisper/i.test(id));
+      if (liveW.length) whisperModels = liveW;
+    }
+
     for (const model of whisperModels) {
       try {
         const mime = String(file.type || "").toLowerCase();

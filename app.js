@@ -87,7 +87,12 @@ window.Kameen = window.Kameen || {};
     selfMarkerColorKey: null,
     tickTimer: null,
     lastSyncBroadcastAt: 0,
+    lastLobbyLocAt: 0,
     recordedGameOverId: null,
+    strictLiveCamera: localStorage.getItem("kameen_strict_cam") === "1",
+    pocketMode: false,
+    lastPocketTapAt: 0,
+    deferredInstallPrompt: null,
   };
 
   function isMatchHost() {
@@ -152,6 +157,19 @@ window.Kameen = window.Kameen || {};
     if (st.engine && useRealHere && now - st.gps.lastSentAt >= 700) {
       st.gps.lastSentAt = now;
       dispatchAction("UPDATE_LOC", { coords: nextCoords });
+    } else if (st.route === "lobby" && st.lobby && now - st.lastLobbyLocAt >= 3000) {
+      st.lastLobbyLocAt = now;
+      const me = st.lobby.players.find((p) => p.id === st.user.id);
+      if (me) {
+        me.coords = nextCoords;
+        me.hasRealFix = true;
+        if (st.lobby.hostId === st.user.id) {
+          K.Network.broadcastLobbyState();
+          K.UI.renderPage();
+        } else {
+          K.Network.sendRaw("LOBBY_LOC", { playerId: st.user.id, coords: nextCoords, hasRealFix: true });
+        }
+      }
     }
 
     K.UI.updateGpsStatusDOM();
@@ -264,9 +282,89 @@ window.Kameen = window.Kameen || {};
     }
   }
 
+  function setPocketMode(active) {
+    const st = K.state;
+    st.pocketMode = Boolean(active);
+    const el = document.getElementById("pocket-overlay");
+    if (el) el.classList.toggle("hidden", !st.pocketMode);
+    if (st.pocketMode) updatePocketOverlayDOM();
+  }
+
+  function updatePocketOverlayDOM() {
+    const st = K.state;
+    if (!st.pocketMode || !st.engine) return;
+    const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+    const clk = document.getElementById("pocket-clock");
+    if (clk) clk.textContent = K.fmtClock(vis.remainingMatchMs);
+    const stEl = document.getElementById("pocket-status");
+    if (stEl) {
+      if (vis.outsideZoneRemainingMs !== null) {
+        stEl.className = "pocket-status danger";
+        stEl.textContent = `خارج الزون! ادخل خلال ${Math.ceil(vis.outsideZoneRemainingMs / 1000)}ث`;
+      } else if (vis.dangerSense) {
+        stEl.className = "pocket-status danger";
+        stEl.textContent = vis.dangerSense.label;
+      } else {
+        const dCenter = Math.round(K.Geo.distanceMeters(vis.self.coords, vis.zone.center));
+        const margin = Math.round(vis.zone.currentRadiusMeters - dCenter);
+        stEl.className = "pocket-status";
+        stEl.textContent = `داخل الزون (${Math.max(0, margin)}م للحدود) • الرصد بعد ${K.fmtClock(vis.nextRevealInMs)}`;
+      }
+    }
+  }
+
+  const SESSION_KEY = "kameen_active_session_v5";
+
+  function persistActiveSession() {
+    const st = K.state;
+    if (!st.engine) return;
+    try {
+      const snap = st.engine.getSnapshot();
+      if (snap.phase === "GAME_OVER") {
+        clearSavedSession();
+        return;
+      }
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        savedAt: Date.now(),
+        code: snap.code,
+        isSimMode: Boolean(st.isSimMode),
+        roleRevealed: Boolean(st.roleRevealed),
+        lobby: st.lobby,
+        snapshot: snap,
+      }));
+    } catch {}
+  }
+
+  function clearSavedSession() {
+    try { localStorage.removeItem(SESSION_KEY); } catch {}
+  }
+
+  function peekSavedSession() {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || !obj.snapshot || obj.snapshot.phase === "GAME_OVER") return null;
+      if (Date.now() - (obj.savedAt || 0) > 45 * 60000) {
+        clearSavedSession();
+        return null;
+      }
+      return obj;
+    } catch {
+      return null;
+    }
+  }
+
   function navigate(nextRoute) {
     stopInAppCamera();
+    if (nextRoute !== "game" && nextRoute !== "simulation") setPocketMode(false);
     const st = K.state;
+    const prevRoute = st.route;
+    if (prevRoute !== nextRoute && st.modal && st.modal !== "eliminated") {
+      st.modal = null;
+      st.videoAnalyzing = false;
+      st.videoVerdict = null;
+    }
     st.route = nextRoute;
     const isMap = nextRoute === "create" || nextRoute === "game" || nextRoute === "simulation";
     document.getElementById("app-shell").classList.toggle("hidden", isMap);
@@ -491,6 +589,7 @@ window.Kameen = window.Kameen || {};
       return true;
     }
     if (snap.phase === "GAME_OVER" && st.route !== "result") {
+      clearSavedSession();
       recordGameStats(snap);
       K.SFX.play("win");
       navigate("result");
@@ -536,12 +635,16 @@ window.Kameen = window.Kameen || {};
         if (checkMatchTransitions(prevPhase, snap)) return;
       }
 
+      if (st.engine && (st.simTimeMs % 3000 < 1000)) persistActiveSession();
       if (st.route === "game" || st.route === "simulation") {
         const visNow = st.engine.getVisibleStateForPlayer(st.user.id);
         updateHeartbeatFx(visNow);
-        K.Map.updateLayers();
-        K.UI.updateHudOnly();
-        if (st.modal === "missions_sheet") K.UI.updateMissionsDynamic();
+        if (st.pocketMode) updatePocketOverlayDOM();
+        else {
+          K.Map.updateLayers();
+          K.UI.updateHudOnly();
+          if (st.modal === "missions_sheet") K.UI.updateMissionsDynamic();
+        }
       } else if (st.route === "meeting") {
         K.UI.updateMeetingDynamic();
       }
@@ -927,6 +1030,7 @@ window.Kameen = window.Kameen || {};
   window.onSimRadar = () => { K.state.engine?.triggerLocationReveal(K.state.simTimeMs); K.Map.updateLayers(); K.UI.updateHudOnly(); };
 
   window.exitGameToLanding = () => {
+    clearSavedSession();
     if (K.state.tickTimer) clearInterval(K.state.tickTimer);
     K.Network.disconnectRoomChannel();
     K.WakeLock.release();
@@ -937,6 +1041,7 @@ window.Kameen = window.Kameen || {};
   };
 
   window.exitGameToCreate = () => {
+    clearSavedSession();
     if (K.state.tickTimer) clearInterval(K.state.tickTimer);
     K.Network.disconnectRoomChannel();
     K.WakeLock.release();
@@ -1101,8 +1206,8 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // If modal was closed while waiting for permission, stop immediately!
-    if (st.modal !== "camera") {
+    // If modal was closed or route changed (e.g. emergency meeting!) while waiting, stop immediately!
+    if (st.modal !== "camera" || (st.route !== "game" && st.route !== "simulation")) {
       try { stream.getTracks().forEach((t) => t.stop()); } catch {}
       return;
     }
@@ -1113,10 +1218,23 @@ window.Kameen = window.Kameen || {};
 
     const video = document.getElementById("inapp-cam-video");
     if (video) {
-      video.srcObject = stream;
+      video.setAttribute("playsinline", "");
+      video.setAttribute("muted", "");
       video.muted = true;
       video.playsInline = true;
+      video.srcObject = stream;
+      await new Promise((resolve) => {
+        const done = () => { video.onloadedmetadata = null; resolve(); };
+        if (video.readyState >= 1) return resolve();
+        video.onloadedmetadata = done;
+        setTimeout(done, 1200);
+      });
       try { await video.play(); } catch {}
+    }
+
+    if (st.modal !== "camera") {
+      stopInAppCamera();
+      return;
     }
 
     st.camera.ready = true;
@@ -1313,10 +1431,123 @@ window.Kameen = window.Kameen || {};
   window.onCamToggleRecord = () => K.Camera.toggleRecord();
   window.onCamRetryStart = () => void K.Camera.start(K.state.activeCameraMissionId);
 
+
+  window.onEnterPocketMode = () => {
+    K.SFX.play("click");
+    void K.WakeLock.acquire();
+    setPocketMode(true);
+  };
+
+  window.onPocketOverlayTap = () => {
+    const now = Date.now();
+    if (now - K.state.lastPocketTapAt <= 550) {
+      K.state.lastPocketTapAt = 0;
+      K.SFX.play("click");
+      setPocketMode(false);
+      K.Map.resize();
+      K.Map.updateLayers();
+      K.UI.updateHudOnly();
+    } else {
+      K.state.lastPocketTapAt = now;
+      const hint = document.getElementById("pocket-unlock-hint");
+      if (hint) {
+        hint.textContent = "اضغط مرة تانية سريعاً للفتح...";
+        setTimeout(() => {
+          const h = document.getElementById("pocket-unlock-hint");
+          if (h) h.textContent = "اضغط مرتين سريعاً لفتح الشاشة";
+        }, 650);
+      }
+    }
+  };
+
+  window.onResumeSavedSession = () => {
+    const saved = peekSavedSession();
+    if (!saved) {
+      K.showToast("الجيم السابق انتهى");
+      K.UI.renderPage();
+      return;
+    }
+    const st = K.state;
+    K.SFX.warmup();
+    K.SFX.play("intel");
+    st.isSimMode = Boolean(saved.isSimMode);
+    st.lobby = saved.lobby || null;
+    st.engine = K.KameenEngine.fromSnapshot(saved.snapshot);
+    st.simTimeMs = saved.isSimMode ? saved.snapshot.nowMs : Date.now();
+    st.roleRevealed = Boolean(saved.roleRevealed);
+    st.roleFlipped = Boolean(saved.roleRevealed);
+    st.eliminatedAck = false;
+    if (!st.isSimMode && saved.code) {
+      K.Network.connectRoomChannel(saved.code);
+    }
+    startEngineLoop();
+    const targetRoute = saved.snapshot.phase === "MEETING"
+      ? "meeting"
+      : (st.isSimMode ? "simulation" : "game");
+    navigate(targetRoute);
+    K.showToast("تم استرجاع الجيم بنجاح");
+  };
+
+  window.onDiscardSavedSession = () => {
+    clearSavedSession();
+    K.UI.renderPage();
+  };
+
+  window.onRematchSameLobby = () => {
+    const st = K.state;
+    if (!st.lobby || st.lobby.hostId !== st.user.id) return;
+    K.SFX.play("click");
+    clearSavedSession();
+    if (st.tickTimer) { clearInterval(st.tickTimer); st.tickTimer = null; }
+    st.engine = null;
+    st.lobby.started = false;
+    st.lobby.matchId = "match-" + Date.now();
+    st.roleRevealed = false;
+    st.roleFlipped = false;
+    st.eliminatedAck = false;
+    st.lastIntel = null;
+    st.recordedGameOverId = null;
+    K.Network.broadcastLobbyState();
+    navigate("lobby");
+    K.showToast("تم فتح جولة جديدة في نفس الغرفة");
+  };
+
+  window.onToggleStrictCamera = () => {
+    K.SFX.play("click");
+    K.state.strictLiveCamera = !K.state.strictLiveCamera;
+    try { localStorage.setItem("kameen_strict_cam", K.state.strictLiveCamera ? "1" : "0"); } catch {}
+    K.UI.renderModal();
+  };
+
+  window.onInstallPwaApp = async () => {
+    const promptEvt = K.state.deferredInstallPrompt;
+    if (!promptEvt) return;
+    K.SFX.play("click");
+    try {
+      promptEvt.prompt();
+      await promptEvt.userChoice;
+    } catch {}
+    K.state.deferredInstallPrompt = null;
+    if (K.state.route === "landing") K.UI.renderPage();
+  };
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    K.state.deferredInstallPrompt = e;
+    if (K.state.route === "landing") K.UI.renderPage();
+  });
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./sw.js").catch(() => {});
+    });
+  }
+
   K.App = {
     isMatchHost, startRealGps, recalibrateGps, startCompass, headingToArabic,
     requestCameraPerm, handleMapTap, navigate, dispatchAction,
     handleAuthoritativeAction, applyRemoteSnapshot, startEngineLoop,
+    peekSavedSession,
   };
 
   try {

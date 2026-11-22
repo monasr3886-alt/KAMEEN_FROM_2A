@@ -4,7 +4,7 @@ window.Kameen = window.Kameen || {};
 
 (function (K) {
   K.CONFIG = {
-    VERSION: "v4.0",
+    VERSION: "v5.0",
     LOGO_PATH: "./logo.jpg",
     DEFAULT_CENTER: { lat: 29.9753, lng: 30.9455, accuracyMeters: 6 },
     // الصق مفتاح Groq هنا لو هترفع مباشر على Vercel أو في Repo خاص (أو احفظه مرة واحدة من قائمة الإعدادات ☰)
@@ -129,7 +129,7 @@ window.Kameen = window.Kameen || {};
         else if (type === "broker") { tone(520, 0.08, 0, "triangle"); tone(780, 0.10, 0.09, "triangle"); tone(1040, 0.18, 0.20, "triangle"); if (navigator.vibrate) navigator.vibrate([80, 50, 100]); }
         else if (type === "airdrop") { tone(587, 0.09, 0, "triangle"); tone(880, 0.16, 0.10, "triangle"); if (navigator.vibrate) navigator.vibrate([70, 45, 70]); }
         else if (type === "win") { tone(523, 0.12, 0); tone(659, 0.12, 0.13); tone(784, 0.22, 0.26); }
-        else if (type === "radar") { tone(920, 0.08, 0, "sine", 0.065); tone(1380, 0.14, 0.08, "sine", 0.045); }
+        else if (type === "radar") { tone(920, 0.08, 0, "sine", 0.065); tone(1380, 0.14, 0.08, "sine", 0.045); if (navigator.vibrate) navigator.vibrate(25); }
         else if (type === "heartbeat_warm") {
           tone(68, 0.10, 0, "sine", 0.13);
           tone(54, 0.12, 0.15, "sine", 0.09);

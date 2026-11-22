@@ -99,6 +99,17 @@ window.Kameen = window.Kameen || {};
       }
     });
 
+    ch.on("broadcast", { event: "LOBBY_LOC" }, ({ payload }) => {
+      if (!st.lobby || st.lobby.hostId !== st.user.id || !payload?.playerId || !payload?.coords) return;
+      const tgt = st.lobby.players.find((p) => p.id === payload.playerId);
+      if (tgt) {
+        tgt.coords = payload.coords;
+        tgt.hasRealFix = Boolean(payload.hasRealFix);
+        broadcastLobbyState();
+        if (st.route === "lobby") K.UI.renderPage();
+      }
+    });
+
     ch.on("broadcast", { event: "LOBBY_SYNC" }, ({ payload }) => {
       if (!payload || !payload.lobby) return;
       if (st.lobby && st.lobby.hostId === st.user.id) return;
@@ -122,6 +133,8 @@ window.Kameen = window.Kameen || {};
         K.App.startEngineLoop();
         K.App.navigate("game");
       } else if (st.route !== "lobby") {
+        st.engine = null;
+        if (st.tickTimer) { clearInterval(st.tickTimer); st.tickTimer = null; }
         K.App.navigate("lobby");
       } else {
         K.UI.renderPage();
