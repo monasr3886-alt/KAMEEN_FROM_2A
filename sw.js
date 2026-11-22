@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE_NAME = "kameen-pwa-v15";
+const CACHE_NAME = "kameen-pwa-v16";
 const CORE_ASSETS = [
   "./",
   "./index.html",

@@ -516,41 +516,52 @@ window.Kameen = window.Kameen || {};
     st.aiBusy = true;
     try {
       const summary = st.engine.buildAnonymizedSummaryForAI();
+      const signals = [];
+      if (summary.freshKillPlace) signals.push({ angle: "kill", fact: `في جريمة إقصاء حصلت من شوية ${summary.freshKillPlace} (عدد الجثث غير المبلغ عنها: ${summary.unreportedBodies})` });
+      if (summary.stalkingPlace) signals.push({ angle: "stalk", fact: `في لاعب بيتتبع لاعب تاني من مسافة قريبة ${summary.stalkingPlace} كأنه بيستنى اللحظة المناسبة` });
+      if (summary.sprinterPlace) signals.push({ angle: "sprint", fact: `في لاعب جري فجأة بسرعة عالية ${summary.sprinterPlace}` });
+      if (summary.zeroMissionWandererPlace) signals.push({ angle: "wander", fact: `في لاعب لسه مخلصش ولا مهمة وعمال يلف بشكل مريب ${summary.zeroMissionWandererPlace}` });
+      if (summary.camperPlace) signals.push({ angle: "camp", fact: `في لاعب واقف مكمبر ثابت مكانه بقاله ${summary.camperSec} ثانية ${summary.camperPlace}` });
+      if (summary.encounterPlace) signals.push({ angle: "enc", fact: `اتنين لاعبين قربوا من بعض جداً ${summary.encounterPlace}` });
+      if (summary.recentMissionPlace) signals.push({ angle: "mission", fact: `تم إنجاز مهمة ميدانية من شوية ${summary.recentMissionPlace} (تقدم القضية ${summary.investigationProgress})` });
+      if (summary.zoneEdgePlace) signals.push({ angle: "edge", fact: `في لاعب بيتحرك لازق في حافة الزون ${summary.zoneEdgePlace}` });
+      if (summary.isolatedPlace) signals.push({ angle: "iso", fact: `في لاعب معزول لوحده بعيد عن الباقي ${summary.isolatedPlace}` });
+
+      // Pick the sharpest signal that is DIFFERENT from lastPublicAngle so reports never feel repetitive!
+      let picked = signals.find((s) => s.angle !== summary.lastPublicAngle) || signals[0] || null;
+      if (picked && st.engine.state) st.engine.state.lastPublicAngle = picked.angle;
+
       const sysPrompt =
-        "أنت 'المحلل النفسي' في لعبة مطاردة وتجسس بالـ GPS في الشارع اسمها 'كمين'. " +
-        "اتكلم باللهجة المصرية الشعبية الروشة والمشوّقة (زي: يا رجالة، صحصحوا، مكمبر، طار جري، افتحوا عينيكم). " +
-        "استخدم أسماء الأماكن الحقيقية من الخريطة زي ما هي في البيانات (مثال: قريب من مسجد كذا أو عند شارع كذا)، وممنوع تماماً تقول قطاع شمالي أو جنوبي أو شرقي أو غربي، وممنوع تذكر أسماء لاعبين. اكتب جملتين قصار ومباشرين.";
+        "أنت 'المحلل العام' (محقق سلوك ذكي) في لعبة مطاردة GPS في الشارع اسمها 'كمين'. " +
+        "مهمتك تدي تلميح استنتاجي حقيقي ومفيد للكل باللهجة المصرية الحماسية في جملتين قصيرين بالظبط. " +
+        "قواعد صارمة: 1) ابني تحليلك على الحدث الرئيسي الموجود في البيانات واذكر اسم الشارع أو المعلم الحقيقي زي ما هو. " +
+        "2) ممنوع تماماً تذكر أسماء لاعبين، وممنوع تقول قطاع شمالي أو جنوبي، وممنوع تكتب كلام عام فاضي مفيهوش معلومة مكانية.";
 
       const userPrompt =
-        `بيانات الميدان الحقيقية من الخريطة: عدد الأحياء ${summary.livingCount}، ` +
-        `تواجد اللاعبين عند الأماكن ${JSON.stringify(summary.placeCounts)}، ` +
-        `عدد الجثث ${summary.bodiesCount}، ` +
-        `نص قطر الزون ${summary.zoneRadiusMeters}م، ` +
-        `وضع الخاتمة السخنة: ${summary.showdownActive ? "شغال" : "لسه"}، ` +
-        `هل فيه لاعب جري بسرعة فجأة؟ ${summary.sprinterPlace || "لأ"}، ` +
-        `هل فيه لاعب مكمبر مكانه كتير؟ ${summary.camperPlace || "لأ"}، ` +
-        `هل اتنين قربوا من بعض جداً؟ ${summary.encounterPlace || "لأ"}.`;
+        `الحدث السلوكي الأهم الآن: ${picked ? picked.fact : "توزيع اللاعبين في المنطقة: " + JSON.stringify(summary.placeCounts)}\n` +
+        `تفاصيل مساعدة: أحياء=${summary.livingCount}، جثث=${summary.bodiesCount}، تقدم القضية=${summary.investigationProgress}، ` +
+        `نصف قطر الزون=${summary.zoneRadiusMeters}م، خاتمة سخنة=${summary.showdownActive ? "نعم" : "لأ"}.`;
 
-      let text = await callGroqChat(sysPrompt, userPrompt, 135);
+      let text = await callGroqChat(sysPrompt, userPrompt, 145);
       const source = text ? "groq" : "local";
 
       if (!text) {
         const busy = Object.entries(summary.placeCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || "نص المنطقة";
-        if (summary.sprinterPlace) {
-          text = `يا رجالة صحصحوا! في واحد طار جري فجأة ${summary.sprinterPlace}.. يا إما عمل عملة وبيهرب يا إما مرعوب!`;
-        } else if (summary.camperPlace) {
-          text = `رادار السلوك لقط حد مكمبر مكانه بقاله حبة ${summary.camperPlace}.. يا ترى مستخبي ولا عامل كمين؟`;
-        } else if (summary.encounterPlace) {
-          text = `اتنين قربوا من بعض أوي ${summary.encounterPlace}.. هل ده تحالف ولا كانت خناقة على نضافة؟`;
-        } else {
-          text = summary.bodiesCount > 0
-            ? `الجو ولّع ${busy}! فيه ${summary.bodiesCount} ضحية لحد دلوقتي والزون بقت ${summary.zoneRadiusMeters}م!`
-            : `الزحمة كلها متجمعة ${busy} بين ${summary.livingCount} لاعبين أحياء.. متأمنش للي ماشي وراك!`;
-        }
+        const a = picked ? picked.angle : "crowd";
+        if (a === "kill") text = `إنذار ميداني: في ضحية وقعت من لحظات ${summary.freshKillPlace} — اللي شوفتوه طالع من هناك بسرعة عليه مليون علامة استفهام!`;
+        else if (a === "stalk") text = `رادار السلوك لقط مطاردة صامتة ${summary.stalkingPlace}.. في واحد ماشي ورا التاني عن قرب، لو إنت هناك التفت وراك فوراً!`;
+        else if (a === "sprint") text = `في لاعب طار جري فجأة ${summary.sprinterPlace}.. يا إما عمل عملة وبيهرب يا إما لمح الغدّار وهرب منه!`;
+        else if (a === "wander") text = `ملاحظة مريبة: في لاعب عمال يلف ${summary.zeroMissionWandererPlace} ومخلصش ولا مهمة لحد دلوقتي.. يا ترى بيتموّه ولا بيدوّر على صيدة؟`;
+        else if (a === "camp") text = `في حد مكمبر مكانه بقاله ${summary.camperSec} ثانية ${summary.camperPlace}.. لو مفيش مهمة هناك يبقى عامل كمين!`;
+        else if (a === "enc") text = `اتنين اتقابلوا على مسافة قريبة أوي ${summary.encounterPlace}.. لو حد فيهم اختفى بعد شوية هتعرفوا مين اللي كان معاه!`;
+        else if (a === "mission") text = `تقدم للمحققين (${summary.investigationProgress}) بعد تنفيذ مهمة ${summary.recentMissionPlace}.. الغدّار أكيد هيحاول يوقفكم هناك!`;
+        else if (a === "edge") text = `في لاعب بيتحرك لازق على حافة الزون ${summary.zoneEdgePlace} كأنه بيستخبى من الزحمة!`;
+        else if (a === "iso") text = `في لاعب ماشي معزول لوحده تماماً ${summary.isolatedPlace} — يا إما بيجهز كمين يا إما صيدة سهلة!`;
+        else text = `التجمع الأكبر حالياً ${busy} وسط ${summary.livingCount} أحياء ونصف قطر ${summary.zoneRadiusMeters}م.. ركّز مين بيتجنب الزحمة!`;
       }
 
       st.engine.addAIReport(text, source, st.simTimeMs);
-      st.lastIntel = `المحلل (${source === "groq" ? "AI" : "رادار"}): ${text}`;
+      st.lastIntel = `المحلل العام: ${text}`;
       K.SFX.play("intel");
       K.Network.broadcastMatchSnapshot(true);
       if (st.route === "game" || st.route === "simulation") K.UI.updateHudOnly();

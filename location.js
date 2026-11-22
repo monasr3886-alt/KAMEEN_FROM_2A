@@ -118,7 +118,7 @@ window.Kameen = window.Kameen || {};
     return "شمال غرب";
   }
 
-  // Standard W3C 3D Tilt-Compensated Compass Heading (prevents 180° flips when phone is held upright!)
+  // Continuous W3C 3D Screen-Top Heading Projection (works seamlessly from flat 0° to upright 75° with ZERO jump!)
   function computeTiltCompensatedHeading(alphaDeg, betaDeg, gammaDeg) {
     const a = alphaDeg * DEG2RAD;
     const b = betaDeg * DEG2RAD;
@@ -128,13 +128,25 @@ window.Kameen = window.Kameen || {};
     const cB = Math.cos(b), sB = Math.sin(b);
     const cG = Math.cos(g), sG = Math.sin(g);
 
-    // Project device screen top vector (or rear camera normal when upright) onto horizontal EN plane
-    const rA = -cA * sG - sA * sB * cG;
-    const rB = -sA * sG + cA * sB * cG;
-    let heading = Math.atan2(rA, rB) * RAD2DEG;
+    // W3C Z-X'-Y'' rotation matrix applied to screen-top unit vector (0, 1, 0):
+    // East component = -sA * cB, North component = cA * cB (smoothly accurate from 0° to ~70° pitch!)
+    // When held nearly vertical (|cos(beta)| < 0.28), smoothly blend toward rear-camera forward vector (0, 0, -1).
+    let east = -sA * cB;
+    let north = cA * cB;
+
+    const flatMag = Math.hypot(east, north);
+    if (flatMag < 0.30) {
+      // Rear camera forward vector projected onto EN plane
+      const camE = -cA * sG - sA * sB * cG;
+      const camN = -sA * sG + cA * sB * cG;
+      const w = Math.max(0, Math.min(1, (0.30 - flatMag) / 0.22));
+      east = east * (1 - w) + camE * w;
+      north = north * (1 - w) + camN * w;
+    }
+
+    let heading = Math.atan2(east, north) * RAD2DEG;
     if (heading < 0) heading += 360;
 
-    // Account for screen rotation (0, 90, 180, 270)
     const screenAngle = (window.screen?.orientation?.angle ?? window.orientation ?? 0) || 0;
     return (heading + screenAngle + 360) % 360;
   }
@@ -196,14 +208,7 @@ window.Kameen = window.Kameen || {};
     } else if (typeof e.alpha === "number" && Number.isFinite(e.alpha)) {
       const beta = (typeof e.beta === "number" && Number.isFinite(e.beta)) ? e.beta : 0;
       const gamma = (typeof e.gamma === "number" && Number.isFinite(e.gamma)) ? e.gamma : 0;
-      // When phone is nearly flat (|beta| < 25 & |gamma| < 25), standard 360-alpha is cleanest;
-      // when tilted in hand (25..85 deg), use full 3D tilt compensation!
-      if (Math.abs(beta) < 22 && Math.abs(gamma) < 22) {
-        const screenAngle = (window.screen?.orientation?.angle ?? window.orientation ?? 0) || 0;
-        heading = (360 - e.alpha + screenAngle + 360) % 360;
-      } else {
-        heading = computeTiltCompensatedHeading(e.alpha, beta, gamma);
-      }
+      heading = computeTiltCompensatedHeading(e.alpha, beta, gamma);
     }
     if (heading !== null) {
       F.compassActive = true;

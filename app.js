@@ -93,6 +93,9 @@ window.Kameen = window.Kameen || {};
     pocketMode: false,
     lastPocketTapAt: 0,
     deferredInstallPrompt: null,
+    intelTab: "public",
+    meetingIntelTab: "public",
+    privateScanOpen: false,
   };
 
   function isMatchHost() {
@@ -470,10 +473,39 @@ window.Kameen = window.Kameen || {};
         res = st.engine.requestBoldHint(playerId);
         if (res.ok && res.meta) {
           const aiHint = await K.AI.callGroqChat(
-            "أنت المحلل النفسي في لعبة كمين. رد بجملة واحدة مشوقة بالعامية المصرية بدون أي أسماء لاعبين.",
-            `اكتب تلميح يقول إن الغدّار موجود ${res.meta.place} على بعد حوالي ${res.meta.dist} متر.`
+            "أنت المحلل الخاص في لعبة كمين. اكتب جملة واحدة دقيقة ومشوقة بالعامية المصرية بدون ذكر أسماء لاعبين.",
+            `اكتب تلميح سري خاص يقول إن الغدّار موجود ${res.meta.place} على بُعد حوالي ${res.meta.dist} متر ناحية الـ${res.meta.dir}.`
           );
-          if (aiHint) res.intelText = "المحلل: " + aiHint;
+          if (aiHint) {
+            res.intelText = aiHint;
+            if (res.intelId) st.engine.updatePrivateIntel(playerId, res.intelId, aiHint, "groq");
+          }
+        }
+        break;
+      case "PRIVATE_PROFILE":
+        res = st.engine.requestPrivateProfile(playerId, t);
+        if (res.ok && res.meta) {
+          const aiProf = await K.AI.callGroqChat(
+            "أنت المحلل السلوكي الخاص في لعبة كمين. اكتب تحليل استنتاجي ذكي ودقيق في جملتين قصار بالعامية المصرية بدون أسماء لاعبين.",
+            `اكتب تحليل خاص عن سلوك مريب رصدناه ${res.meta.place} على بُعد ${res.meta.dist}م ناحية الـ${res.meta.dir}، الملاحظة السلوكية الحقيقية: ${res.meta.behaviorClue}.`
+          );
+          if (aiProf) {
+            res.intelText = aiProf;
+            if (res.intelId) st.engine.updatePrivateIntel(playerId, res.intelId, aiProf, "groq");
+          }
+        }
+        break;
+      case "IMP_INTEL":
+        res = st.engine.requestImposterIntel(playerId, t);
+        if (res.ok && res.meta) {
+          const aiImp = await K.AI.callGroqChat(
+            "أنت المحلل السري للغدّار في لعبة كمين. رد بجملة تكتيكية قصيرة بالعامية المصرية.",
+            `بلغ الغدّار إن أسهل محقق معزول هو ${res.meta.targetName} وموجود ${res.meta.isoPlace} على بعد ${res.meta.isoDist}م ناحية الـ${res.meta.isoDir} ${res.meta.nextStop}.`
+          );
+          if (aiImp) {
+            res.intelText = aiImp;
+            if (res.intelId) st.engine.updatePrivateIntel(playerId, res.intelId, aiImp, "groq");
+          }
         }
         break;
       case "MISSION_START":
@@ -509,6 +541,7 @@ window.Kameen = window.Kameen || {};
     if (st.route === "game" || st.route === "simulation") {
       K.Map.updateLayers();
       K.UI.updateHudOnly();
+      if (st.modal === "intel_log") K.UI.renderModal();
     } else if (st.route === "meeting") {
       K.UI.updateMeetingDynamic();
     } else if (st.route === "result") {
@@ -608,6 +641,7 @@ window.Kameen = window.Kameen || {};
     if (st.route === "game" || st.route === "simulation") {
       K.Map.updateLayers();
       K.UI.updateHudOnly();
+      if (st.modal === "intel_log") K.UI.renderModal();
     } else if (st.route === "meeting") {
       K.UI.updateMeetingDynamic();
     } else if (st.route === "result") {
@@ -956,9 +990,58 @@ window.Kameen = window.Kameen || {};
   window.onReportBody = (bodyId) => dispatchAction("REPORT", { bodyId });
   window.onCastVote = (targetId) => dispatchAction("VOTE", { targetId });
   window.onClaimAirdrop = () => dispatchAction("CLAIM_AIRDROP");
-  window.onAcceptBroker = (choice) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("BROKER", { choice }); };
-  window.onUseAbility = (type) => { K.state.modal = null; K.UI.renderModal(); dispatchAction(type); };
-  window.onScanPlace = (placeId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("LOC_Q", { placeId }); };
+  window.onAcceptBroker = (choice) => {
+    K.state.modal = choice === "intel" ? "intel_log" : null;
+    if (choice === "intel") K.state.intelTab = "private";
+    K.UI.renderModal();
+    dispatchAction("BROKER", { choice });
+  };
+  window.onUseAbility = (type) => {
+    const isPrivateIntel = type === "BOLD_HINT" || type === "BLOODHOUND" || type === "PRIVATE_PROFILE" || type === "IMP_INTEL";
+    if (isPrivateIntel) {
+      K.state.intelTab = "private";
+      K.state.modal = "intel_log";
+    } else {
+      K.state.modal = null;
+    }
+    K.UI.renderModal();
+    dispatchAction(type);
+  };
+  window.onScanPlace = (placeId) => {
+    K.state.intelTab = "private";
+    K.state.privateScanOpen = false;
+    K.state.modal = "intel_log";
+    K.UI.renderModal();
+    dispatchAction("LOC_Q", { placeId });
+  };
+  window.onSwitchIntelTab = (tab) => {
+    K.SFX.play("click");
+    K.state.intelTab = tab === "private" ? "private" : "public";
+    K.state.privateScanOpen = false;
+    K.UI.renderModal();
+  };
+  window.onSwitchMeetingIntelTab = (tab) => {
+    K.SFX.play("click");
+    K.state.meetingIntelTab = tab === "private" ? "private" : "public";
+    K.UI.renderPage();
+  };
+  window.onTogglePrivateScanBox = () => {
+    K.SFX.play("click");
+    K.state.privateScanOpen = !K.state.privateScanOpen;
+    K.UI.renderModal();
+  };
+  window.onBuyPrivateIntel = (type) => {
+    K.SFX.play("click");
+    K.state.intelTab = "private";
+    K.state.privateScanOpen = false;
+    dispatchAction(type);
+  };
+  window.onBuyPrivateScan = (placeId) => {
+    K.SFX.play("click");
+    K.state.intelTab = "private";
+    K.state.privateScanOpen = false;
+    dispatchAction("LOC_Q", { placeId });
+  };
   window.onSpokenName = (accusedId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("SPOKEN", { accusedId }); };
   window.onStartMission = (missionId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("MISSION_START", { missionId }); };
   window.onRerollMission = (missionId) => {

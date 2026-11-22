@@ -4,7 +4,7 @@ window.Kameen = window.Kameen || {};
 
 (function (K) {
   K.CONFIG = {
-    VERSION: "v5.0",
+    VERSION: "v5.1",
     LOGO_PATH: "./logo.jpg",
     DEFAULT_CENTER: { lat: 29.9753, lng: 30.9455, accuracyMeters: 6 },
     // الصق مفتاح Groq هنا لو هترفع مباشر على Vercel أو في Repo خاص (أو احفظه مرة واحدة من قائمة الإعدادات ☰)
@@ -36,10 +36,12 @@ window.Kameen = window.Kameen || {};
     PROTECTION_COST: 15,
     PROTECTION_DURATION_MS: 15000,
     LOCATION_QUESTION_COST: 20,
+    PRIVATE_PROFILE_COST: 30,
     BOLD_HINT_COST: 60,
     SPOKEN_PENALTY_POINTS: 25,
     // Imposter Powers
     BLOODHOUND_COST: 20,
+    IMP_INTEL_COST: 25,
     DECOY_COST: 25,
     DECOY_DURATION_MS: 15000,
     PLANT_RUMOR_COST: 15,
@@ -51,7 +53,7 @@ window.Kameen = window.Kameen || {};
     BROKER_RED_BROADCAST_MS: 15000,
     BROKER_OFFER_WINDOW_MS: 35000,
     BROKER_CASH_REWARD: 60,
-    AI_REPORT_INTERVAL_MS: 85000,
+    AI_REPORT_INTERVAL_MS: 70000,
     MEETING_DURATION_MS: 120000,
     INITIAL_POINTS: 100,
   };

@@ -455,6 +455,10 @@ window.Kameen = window.Kameen || {};
         bodies: [],
         activeMeeting: null,
         aiReports: [],
+        privateIntel: {},
+        lastKillMeta: null,
+        recentMissionMeta: null,
+        lastPublicAngle: null,
         postChat: [],
         events: [
           {
@@ -744,6 +748,7 @@ window.Kameen = window.Kameen || {};
         activeMeeting: JSON.parse(JSON.stringify(this.state.activeMeeting)),
         activeBrokerOffer: JSON.parse(JSON.stringify(this.state.activeBrokerOffer)),
         aiReports: JSON.parse(JSON.stringify(this.state.aiReports)),
+        privateIntel: JSON.parse(JSON.stringify((this.state.privateIntel && this.state.privateIntel[self.id]) || [])),
         postChat: JSON.parse(JSON.stringify(this.state.postChat || [])),
         events: JSON.parse(JSON.stringify(this.state.events)),
         awards: isGameOver ? this.computeAwards() : [],
@@ -1045,10 +1050,9 @@ window.Kameen = window.Kameen || {};
       }
       const place = getNearbyPlaceLabel(best.coords, this.state.pois);
       const dir = getArabicDirection(p.coords, best.coords);
-      return {
-        ok: true,
-        intelText: `🩸 رادار الصيد: أقرب ضحية (${best.name}) موجود ${place} — على بُعد ${Math.round(bestD)}م ناحية الـ${dir}!`,
-      };
+      const txt = `رادار الصيد: أقرب ضحية (${best.name}) موجود ${place} — على بُعد ${Math.round(bestD)}م ناحية الـ${dir}.`;
+      const saved = this.addPrivateIntel(playerId, "BLOODHOUND", "رادار الصيد", txt, C.BLOODHOUND_COST, "radar");
+      return { ok: true, intelId: saved.id, intelText: txt };
     }
 
     // IMPOSTER-ONLY POWER: Decoy Red Ping
@@ -1126,7 +1130,8 @@ window.Kameen = window.Kameen || {};
         victimId: tgt.id, victimName: tgt.name,
         coords: { ...tgt.coords }, createdAtMs: nowMs, reported: false,
       });
-      this.pushEvent("KILL", `🔪 في ضحية وقعت في الميدان...`, nowMs, imposterId, targetId);
+      this.state.lastKillMeta = { place: getNearbyPlaceLabel(tgt.coords, this.state.pois), atMs: nowMs };
+      this.pushEvent("KILL", `في ضحية وقعت في الميدان...`, nowMs, imposterId, targetId);
       this.checkWinConditions(nowMs);
       return { ok: true, toast: `🔪 فنشّت ${tgt.name} بنضافة! امشي طبيعي عشان المحلل ميفضحكش!` };
     }
@@ -1283,9 +1288,10 @@ window.Kameen = window.Kameen || {};
         (x) => x.id !== playerId && distanceMeters(x.coords, { lat: poi.lat, lng: poi.lng }) <= scanRadius
       ).length;
       const intelText = cnt > 0
-        ? `📡 مسح محيط "${poi.name}": الرادار لقط ${cnt} لاعب(ين) قريبين منه دلوقتي!`
-        : `📡 مسح محيط "${poi.name}": فاضي تماماً يا باشا، مفيش حد قريب منه!`;
-      return { ok: true, intelText };
+        ? `مسح محيط «${poi.name}»: الرادار لقط ${cnt} لاعب(ين) قريبين منه دلوقتي.`
+        : `مسح محيط «${poi.name}»: فاضي تماماً حالياً، مفيش حد قريب منه.`;
+      const saved = this.addPrivateIntel(playerId, "LOC_Q", `مسح ${poi.name}`, intelText, C.LOCATION_QUESTION_COST, "radar");
+      return { ok: true, intelId: saved.id, intelText };
     }
 
     // INVESTIGATOR-ONLY POWER: Bold Hint on Imposter
@@ -1300,8 +1306,9 @@ window.Kameen = window.Kameen || {};
       const place = getNearbyPlaceLabel(imp.coords, this.state.pois);
       const dist = Math.round(distanceMeters(p.coords, imp.coords));
       const dir = getArabicDirection(p.coords, imp.coords);
-      const intelText = `🔥 تلميح تقيل من المحلل: الغدّار حالياً ${place}.. وبينه وبينك حوالي ${dist}م! افتح عينك!`;
-      return { ok: true, intelText, meta: { place, dist, dir } };
+      const intelText = `تلميح مباشر: الغدّار حالياً ${place}.. بينه وبينك حوالي ${dist}م ناحية الـ${dir}.`;
+      const saved = this.addPrivateIntel(playerId, "BOLD_HINT", "تلميح مباشر للغدّار", intelText, C.BOLD_HINT_COST, "radar");
+      return { ok: true, intelId: saved.id, intelText, meta: { place, dist, dir } };
     }
 
     triggerBrokerOffer(minuteMark, nowMs = this.state.nowMs) {
@@ -1348,9 +1355,12 @@ window.Kameen = window.Kameen || {};
       const label = p.role === "IMPOSTER"
         ? `أقرب صيدة (${best.name}) موجود ${place} على بُعد ${Math.round(nearest)}م ناحية الـ${dir}!`
         : `أقرب غدّار ليك موجود ${place} على بُعد ${Math.round(nearest)}م ناحية الـ${dir}!`;
+      const fullTxt = `صفقة السمسار: ${label}`;
+      const saved = this.addPrivateIntel(playerId, "BROKER", "صفقة السمسار السرية", fullTxt, 0, "broker", nowMs);
       return {
         ok: true,
-        intelText: `🤝 صفقة السمسار تمت! ${label} (اجري بقى عشان مكانك مكشوف 15ث!)`,
+        intelId: saved.id,
+        intelText: `${fullTxt} (اجري عشان مكانك مكشوف 15ث!)`,
       };
     }
 
@@ -1400,6 +1410,7 @@ window.Kameen = window.Kameen || {};
         const prog = this.getInvestigationProgress();
         this.state.investigationDone = prog.done;
         this.state.investigationGoal = prog.goal;
+        this.state.recentMissionMeta = { place: getNearbyPlaceLabel(p.coords, this.state.pois), atMs: nowMs };
         this.pushEvent("MISSION_COMPLETED", `مهمة معتمدة بالذكاء الاصطناعي! تقدم المحققين (${prog.done}/${prog.goal})`, nowMs, playerId);
         if (prog.allCompleted) {
           this.endMatch("INVESTIGATORS", "كل المحققين خلّصوا مهماتهم 100% بالذكاء الاصطناعي وقفلوا القضية!", nowMs);
@@ -1420,6 +1431,115 @@ window.Kameen = window.Kameen || {};
       };
     }
 
+    addPrivateIntel(playerId, kind, title, text, cost = 0, source = "radar", nowMs = this.state.nowMs) {
+      if (!this.state.privateIntel) this.state.privateIntel = {};
+      if (!Array.isArray(this.state.privateIntel[playerId])) this.state.privateIntel[playerId] = [];
+      const item = {
+        id: this.nextEventId("pintel"),
+        kind,
+        title,
+        text,
+        cost,
+        source,
+        createdAtMs: nowMs,
+      };
+      this.state.privateIntel[playerId].push(item);
+      if (this.state.privateIntel[playerId].length > 30) {
+        this.state.privateIntel[playerId].shift();
+      }
+      return item;
+    }
+
+    updatePrivateIntel(playerId, intelId, newText, source = "groq") {
+      const list = this.state.privateIntel && this.state.privateIntel[playerId];
+      if (!Array.isArray(list)) return;
+      const item = list.find((x) => x.id === intelId);
+      if (item && newText) {
+        item.text = newText;
+        item.source = source;
+      }
+    }
+
+    // INVESTIGATOR PRIVATE PROFILER (30 pts): Deep behavioral analysis on suspicious player movement (saved permanently!)
+    requestPrivateProfile(playerId, nowMs = this.state.nowMs) {
+      if (this.state.phase !== "ACTIVE") return { ok: false, error: "شغال بعد التشتيت بس" };
+      const p = this.state.players[playerId];
+      if (!p || !p.alive || p.role !== "INVESTIGATOR") return { ok: false, error: "التحليل السلوكي الخاص للمحققين بس!" };
+      const cost = C.PRIVATE_PROFILE_COST || 30;
+      if (p.points < cost) return { ok: false, error: `محتاج ${cost} نقطة للتحليل الخاص` };
+      const others = this.getLivingPlayers().filter((x) => x.id !== playerId);
+      if (!others.length) return { ok: false, error: "مفيش لاعبين أحياء للتحليل دلوقتي" };
+
+      p.points -= cost;
+      const imp = others.find((x) => x.role === "IMPOSTER");
+      const target = imp || others[0];
+      const place = getNearbyPlaceLabel(target.coords, this.state.pois);
+      const dist = Math.round(distanceMeters(p.coords, target.coords));
+      const dir = getArabicDirection(p.coords, target.coords);
+      const completed = target.missionsCompleted || 0;
+      const nearBody = this.state.bodies.some((b) => distanceMeters(target.coords, b.coords) <= 55);
+      const speedKmh = Number(((target.speedMps || 0) * 3.6).toFixed(1));
+      const stationary = Math.round(target.stationarySeconds || 0);
+
+      let behaviorClue = "";
+      if (nearBody) behaviorClue = "كان بيلف قريب من موقع جثة سابقة";
+      else if (completed === 0 && this.state.activeElapsedMs > 75000) behaviorClue = "لسه مخلصش ولا مهمة لحد دلوقتي رغم إن الوقت بيمشي";
+      else if (stationary >= 12) behaviorClue = `واقف ثابت مكانه بقاله ${stationary}ث كأنه بيراقب`;
+      else if (speedKmh >= 7) behaviorClue = `بيتحرك بسرعة عالية (${speedKmh} كم/س)`;
+      else behaviorClue = "عمال يلف ويتنقل حوالين المنطقة بهدوء مريب";
+
+      const fallbackText = `تحليل خاص: رصدنا سلوك مريب ${place} (حوالي ${dist}م ناحية الـ${dir} منك) — اللاعب ده ${behaviorClue}. راقب مين كان هناك!`;
+      const saved = this.addPrivateIntel(playerId, "PRIVATE_PROFILE", "تحليل سلوكي خاص", fallbackText, cost, "radar", nowMs);
+      return {
+        ok: true,
+        intelId: saved.id,
+        intelText: fallbackText,
+        meta: { place, dist, dir, behaviorClue, completed, speedKmh, stationary },
+      };
+    }
+
+    // IMPOSTER PRIVATE PROFILER (25 pts): Mission-cluster & isolated-victim tactical scan (saved permanently!)
+    requestImposterIntel(playerId, nowMs = this.state.nowMs) {
+      if (this.state.phase !== "ACTIVE") return { ok: false, error: "شغال بعد التشتيت بس" };
+      const p = this.state.players[playerId];
+      if (!p || !p.alive || p.role !== "IMPOSTER") return { ok: false, error: "التحليل التكتيكي ده للغدّار بس!" };
+      const cost = C.IMP_INTEL_COST || 25;
+      if (p.points < cost) return { ok: false, error: `محتاج ${cost} نقطة للتحليل الخاص` };
+      const invs = this.getLivingPlayers().filter((x) => x.role === "INVESTIGATOR");
+      if (!invs.length) return { ok: false, error: "مفيش محققين أحياء دلوقتي" };
+
+      p.points -= cost;
+      // Find the most isolated investigator (farthest from other investigators) = easiest ambush target!
+      let bestIso = invs[0];
+      let bestIsolationScore = -1;
+      for (const inv of invs) {
+        let minPeerD = 999;
+        for (const peer of invs) {
+          if (peer.id === inv.id) continue;
+          const d = distanceMeters(inv.coords, peer.coords);
+          if (d < minPeerD) minPeerD = d;
+        }
+        if (minPeerD > bestIsolationScore) {
+          bestIsolationScore = minPeerD;
+          bestIso = inv;
+        }
+      }
+      const isoPlace = getNearbyPlaceLabel(bestIso.coords, this.state.pois);
+      const isoDist = Math.round(distanceMeters(p.coords, bestIso.coords));
+      const isoDir = getArabicDirection(p.coords, bestIso.coords);
+      const invMissions = (this.state.missions[bestIso.id] || []).find((m) => m.status === "in_progress" || m.status === "pending");
+      const nextStop = invMissions ? `ومحتمل يتحرك ناحية ${invMissions.poi.name}` : "وخلّص معظم مهامه — لازم تلحقه!";
+
+      const fallbackText = `تحليل الصياد: أسهل هدف معزول حالياً هو «${bestIso.name}» ${isoPlace} (${isoDist}م ناحية الـ${isoDir}) ${nextStop}`;
+      const saved = this.addPrivateIntel(playerId, "IMP_INTEL", "تحليل الصياد الخاص", fallbackText, cost, "radar", nowMs);
+      return {
+        ok: true,
+        intelId: saved.id,
+        intelText: fallbackText,
+        meta: { targetName: bestIso.name, isoPlace, isoDist, isoDir, nextStop },
+      };
+    }
+
     addAIReport(summaryText, source, nowMs = this.state.nowMs) {
       const report = { id: this.nextEventId("ai"), createdAtMs: nowMs, summaryText, source };
       this.state.aiReports.push(report);
@@ -1434,28 +1554,88 @@ window.Kameen = window.Kameen || {};
     buildAnonymizedSummaryForAI() {
       const placeCounts = {};
       const living = this.getLivingPlayers();
+      const nowMs = this.state.nowMs;
       let sprinterPlace = null;
       let camperPlace = null;
+      let camperSec = 0;
+      let zeroMissionWandererPlace = null;
+      let zoneEdgePlace = null;
+      let stalkingPlace = null;
+      let isolatedPlace = null;
+      let maxIsolation = 0;
+
       for (const p of living) {
         const pl = getNearbyPlaceLabel(p.coords, this.state.pois);
         placeCounts[pl] = (placeCounts[pl] ?? 0) + 1;
-        if (p.maxRecentSpeedMps > 3.0) {
+
+        // Detect fast movement / fleeing / chasing (lowered to 2.15 m/s so real brisk runs & bot chases register!)
+        if ((p.maxRecentSpeedMps || 0) >= 2.15) {
           sprinterPlace = pl;
           p.maxRecentSpeedMps = 0;
         }
-        if (p.stationarySeconds >= 25) camperPlace = pl;
+
+        // Detect camping / pausing (12s+ registers ambushes & mission filming pauses!)
+        if ((p.stationarySeconds || 0) >= 12 && (p.stationarySeconds || 0) > camperSec) {
+          camperSec = Math.round(p.stationarySeconds);
+          camperPlace = pl;
+        }
+
+        // Detect someone hugging the shrinking zone border (within 22m of storm wall)
+        const dCenter = distanceMeters(p.coords, this.state.zone.center);
+        if (this.state.zone.currentRadiusMeters - dCenter <= 22) {
+          zoneEdgePlace = pl;
+        }
+
+        // Anonymous behavioral clue: someone active with 0 missions completed past 60s
+        if ((p.missionsCompleted || 0) === 0 && this.state.activeElapsedMs >= 60000 && (p.speedMps || 0) >= 0.6) {
+          if (p.role === "IMPOSTER" || !zeroMissionWandererPlace) {
+            zeroMissionWandererPlace = pl;
+          }
+        }
+
+        // Detect trailing/stalking & isolated player
+        let minPeer = Infinity;
+        for (const q of living) {
+          if (q.id === p.id) continue;
+          const d = distanceMeters(p.coords, q.coords);
+          if (d < minPeer) minPeer = d;
+          if (p.role === "IMPOSTER" && q.role === "INVESTIGATOR" && d >= 9 && d <= 32) {
+            stalkingPlace = pl;
+          }
+        }
+        if (minPeer !== Infinity && minPeer > maxIsolation && minPeer >= 45) {
+          maxIsolation = Math.round(minPeer);
+          isolatedPlace = pl;
+        }
       }
-      const recentEnc = this.state.recentEncounters.filter((e) => this.state.nowMs - e.atMs < 90000);
+
+      const recentEnc = this.state.recentEncounters.filter((e) => nowMs - e.atMs < 90000);
+      const freshKillPlace = (this.state.lastKillMeta && nowMs - this.state.lastKillMeta.atMs < 95000)
+        ? this.state.lastKillMeta.place : null;
+      const recentMissionPlace = (this.state.recentMissionMeta && nowMs - this.state.recentMissionMeta.atMs < 85000)
+        ? this.state.recentMissionMeta.place : null;
+      const prog = this.getInvestigationProgress();
+
       return {
         activeSeconds: Math.round(this.state.activeElapsedMs / 1000),
         livingCount: living.length,
         placeCounts,
         bodiesCount: this.state.bodies.length,
+        unreportedBodies: this.state.bodies.filter((b) => !b.reported).length,
         zoneRadiusMeters: this.state.zone.currentRadiusMeters,
         showdownActive: this.state.showdownActive,
+        investigationProgress: `${prog.done}/${prog.goal}`,
         sprinterPlace,
         camperPlace,
+        camperSec,
+        stalkingPlace,
+        freshKillPlace,
+        recentMissionPlace,
+        zeroMissionWandererPlace,
+        zoneEdgePlace,
+        isolatedPlace,
         encounterPlace: recentEnc.length ? recentEnc[recentEnc.length - 1].place : null,
+        lastPublicAngle: this.state.lastPublicAngle || null,
       };
     }
 
@@ -1588,7 +1768,7 @@ window.Kameen = window.Kameen || {};
         }
         if (nearest) {
           if (minDist <= 8) { engine.attemptKill(bot.id, nearest.id, nowMs); continue; }
-          if (minDist <= 26) { engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, nearest.coords, stepMeters * 1.05), nowMs); continue; }
+          if (minDist <= 28) { engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, nearest.coords, Math.max(stepMeters * 1.45, 2.35)), nowMs); continue; }
         }
       }
 

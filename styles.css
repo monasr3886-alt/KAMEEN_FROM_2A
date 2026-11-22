@@ -197,7 +197,7 @@ body.screen-shake {
 
 .app-topbar {
   flex-shrink: 0;
-  padding: max(12px, env(safe-area-inset-top)) 16px 12px;
+  padding: max(9px, env(safe-area-inset-top)) 14px 9px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -212,10 +212,10 @@ body.screen-shake {
   overflow-y: auto;
   overflow-x: hidden;
   -webkit-overflow-scrolling: touch;
-  padding: 14px 16px 28px;
+  padding: 10px 14px 20px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 9px;
 }
 .app-scroll::-webkit-scrollbar { display: none; }
 
@@ -295,18 +295,18 @@ body.screen-shake {
   overflow: hidden;
   background: linear-gradient(135deg, #110609 0%, #0A0A0E 65%);
   border: 1px solid var(--crimson-border);
-  border-radius: 18px;
-  padding: 16px;
+  border-radius: 16px;
+  padding: 12px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   box-shadow: var(--bevel);
 }
 
 .hero-radar-svg {
-  width: 74px;
-  height: 74px;
+  width: 54px;
+  height: 54px;
   flex-shrink: 0;
 }
 
@@ -1321,4 +1321,67 @@ body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
   font-size: 12px;
   font-weight: 800;
   z-index: 3;
+}
+
+
+/* ============================================================
+   DUAL PROFILER TABS (PUBLIC vs PRIVATE PAID INTEL)
+   ============================================================ */
+.intel-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  padding: 4px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.intel-tab-btn {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  border-radius: 9px;
+  padding: 8px 6px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.intel-tab-btn.active-public {
+  background: var(--crimson-tint);
+  border-color: var(--crimson-border);
+  color: #FF6B7D;
+}
+.intel-tab-btn.active-private {
+  background: var(--amber-tint);
+  border-color: var(--amber-border);
+  color: #FCD34D;
+}
+
+.intel-item.private-item {
+  border-right-color: var(--amber);
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.08) 0%, #121218 70%);
+  border-color: rgba(245, 158, 11, 0.28);
+}
+
+.intel-meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.compact-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 15px;
+  padding: 11px 12px;
+  box-shadow: var(--bevel);
 }

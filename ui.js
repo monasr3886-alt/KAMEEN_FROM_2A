@@ -460,7 +460,7 @@ window.Kameen = window.Kameen || {};
           </button>
           <button class="dock-btn" onclick="onOpenModal('intel_log')">
             ${ICONS.cpu}<span>المحلل</span>
-            ${vis.aiReports.length ? `<span class="dock-badge">${vis.aiReports.length}</span>` : ""}
+            ${(vis.aiReports.length + (vis.privateIntel || []).length) ? `<span class="dock-badge">${vis.aiReports.length + (vis.privateIntel || []).length}</span>` : ""}
           </button>
         </div>
       `);
@@ -488,7 +488,7 @@ window.Kameen = window.Kameen || {};
         </button>
         <button class="dock-btn" onclick="onOpenModal('intel_log')">
           ${ICONS.cpu}<span>المحلل</span>
-          ${vis.aiReports.length ? `<span class="dock-badge">${vis.aiReports.length}</span>` : ""}
+          ${(vis.aiReports.length + (vis.privateIntel || []).length) ? `<span class="dock-badge">${vis.aiReports.length + (vis.privateIntel || []).length}</span>` : ""}
         </button>
       </div>
     `);
@@ -556,29 +556,24 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // --- 1) HOME SCREEN (Animated Tactical Radar Hero + Session Recovery + Crisp Controls) ---
+    // --- 1) HOME SCREEN (Zero-Crowding Compact Tactical Layout — All Core Actions Visible Instantly) ---
     if (st.route === "landing") {
       const savedSess = K.App.peekSavedSession();
       root.innerHTML = `
         <div class="hero-radar-card">
-          <div style="min-width:0;display:flex;flex-direction:column;gap:4px;">
+          <div style="min-width:0;display:flex;flex-direction:column;gap:2px;">
             <div style="display:flex;align-items:center;gap:6px;">
               <span class="live-dot green"></span>
-              <span class="eyebrow" style="color:var(--crimson);">LIVE GPS TACTICAL GAME</span>
+              <span class="eyebrow" style="color:var(--crimson);">KAMEEN • GPS RADAR</span>
+              <span class="pill pill-green sb-status-badge" style="padding:1px 6px;font-size:10px;">جاهز</span>
             </div>
-            <div style="font-size:21px;font-weight:900;line-height:1.25;">مطاردة واقعية بالرادار</div>
-            <div style="font-size:11.5px;color:var(--muted);font-weight:700;">فريق واحد • غدّارين عشوائيين • مهام AI حقيقية</div>
-            <div style="margin-top:4px;display:flex;align-items:center;gap:6px;">
-              <span class="pill pill-green sb-status-badge">جاهز</span>
-              <span class="pill mono">AI Vision</span>
-            </div>
+            <div style="font-size:18px;font-weight:900;line-height:1.25;">مطاردة واقعية بالرادار والـ AI</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:700;">فريق واحد • غدّارين عشوائيين • محلل عام وخاص</div>
           </div>
           <svg class="hero-radar-svg" viewBox="0 0 80 80" aria-hidden="true">
             <circle cx="40" cy="40" r="36" fill="none" stroke="rgba(239,35,60,0.22)" stroke-width="1"/>
             <circle cx="40" cy="40" r="24" fill="none" stroke="rgba(239,35,60,0.22)" stroke-width="1"/>
             <circle cx="40" cy="40" r="12" fill="none" stroke="rgba(239,35,60,0.28)" stroke-width="1"/>
-            <line x1="40" y1="4" x2="40" y2="76" stroke="rgba(239,35,60,0.14)" stroke-width="1"/>
-            <line x1="4" y1="40" x2="76" y2="40" stroke="rgba(239,35,60,0.14)" stroke-width="1"/>
             <g class="radar-sweep-arm">
               <path d="M 40 40 L 40 4 A 36 36 0 0 1 71 22 Z" fill="rgba(239,35,60,0.28)"/>
               <line x1="40" y1="40" x2="40" y2="4" stroke="#EF233C" stroke-width="1.6"/>
@@ -589,10 +584,10 @@ window.Kameen = window.Kameen || {};
         </div>
 
         ${savedSess ? `
-          <div class="card" style="border-color:var(--amber-border);background:#140F05;display:flex;align-items:center;justify-content:space-between;gap:10px;">
+          <div class="compact-card" style="border-color:var(--amber-border);background:#140F05;display:flex;align-items:center;justify-content:space-between;gap:8px;">
             <div style="min-width:0;">
-              <div style="font-size:12.5px;font-weight:900;color:#FCD34D;">عندك جيم نشط لم ينتهِ (${esc(savedSess.code)})</div>
-              <div style="font-size:11px;color:var(--muted);font-weight:700;">رجوع مباشر بنفس دورك ونقطك على الرادار</div>
+              <div style="font-size:12px;font-weight:900;color:#FCD34D;">جيم نشط (${esc(savedSess.code)})</div>
+              <div style="font-size:10.5px;color:var(--muted);font-weight:700;">رجوع مباشر بنفس دورك ونقطك</div>
             </div>
             <div style="display:flex;gap:5px;flex-shrink:0;">
               <button class="btn btn-warning btn-xs" onclick="onResumeSavedSession()">استكمال</button>
@@ -601,38 +596,38 @@ window.Kameen = window.Kameen || {};
           </div>
         ` : ""}
 
-        <div class="card" style="display:flex;flex-direction:column;gap:12px;">
-          <div>
-            <div class="eyebrow" style="margin-bottom:5px;">اسم العميل</div>
-            <input id="player-name-input" class="input" type="text" value="${esc(st.user.name)}"
+        <div class="compact-card" style="display:flex;flex-direction:column;gap:9px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="eyebrow" style="white-space:nowrap;">العميل</span>
+            <input id="player-name-input" class="input" style="padding:9px 12px;font-size:13.5px;" type="text" value="${esc(st.user.name)}"
               oninput="Kameen.state.user.name=this.value;try{localStorage.setItem('kameen_name',this.value)}catch{}"
               placeholder="اكتب اسمك..." />
           </div>
 
-          <button class="btn btn-primary" style="width:100%;padding:14px;font-size:14.5px;" onclick="onStartCreateFlow()">
+          <button class="btn btn-primary" style="width:100%;padding:12px;font-size:14px;" onclick="onStartCreateFlow()">
             إنشاء منطقة كمين جديدة
           </button>
 
-          <div style="display:flex;gap:8px;">
+          <div style="display:flex;gap:7px;">
             <input id="join-code-input" class="input mono" type="text" value="${esc(st.joinCode)}"
               oninput="Kameen.state.joinCode=this.value.toUpperCase()"
               onkeydown="if(event.key==='Enter')onJoinByInput()"
-              placeholder="KMN402"
-              style="flex:1;text-align:center;letter-spacing:3px;text-transform:uppercase;font-weight:800;" />
-            <button class="btn btn-emerald-outline" style="padding:0 22px;" onclick="onJoinByInput()">انضم</button>
+              placeholder="كود الغرفة (KMN402)"
+              style="flex:1;padding:10px 10px;text-align:center;letter-spacing:2px;text-transform:uppercase;font-size:13px;font-weight:800;" />
+            <button class="btn btn-emerald-outline" style="padding:0 20px;" onclick="onJoinByInput()">انضم</button>
           </div>
         </div>
 
-        <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;" onclick="onStartSimulation()">
+        <div class="compact-card" style="display:flex;align-items:center;justify-content:space-between;gap:10px;cursor:pointer;" onclick="onStartSimulation()">
           <div>
-            <div style="font-weight:900;font-size:14px;">تجربة فردية (محاكاة بالبوتات)</div>
-            <div style="font-size:11.5px;color:var(--muted);font-weight:600;">اختبر الرادار وكاميرا الـ AI ودور الغدّار والمحقق فوراً</div>
+            <div style="font-weight:900;font-size:13.5px;">تجربة فردية (محاكاة بالبوتات)</div>
+            <div style="font-size:11px;color:var(--muted);font-weight:600;">اختبر الرادار والمحلل وكاميرا الـ AI فوراً</div>
           </div>
           <span class="pill pill-red">ابدأ</span>
         </div>
 
         ${st.deferredInstallPrompt ? `
-          <button class="btn btn-cyan btn-sm" style="width:100%;" onclick="onInstallPwaApp()">
+          <button class="btn btn-cyan btn-xs" style="width:100%;padding:9px;" onclick="onInstallPwaApp()">
             ${ICONS.download} تثبيت «كمين» كتطبيق على موبايلك
           </button>
         ` : ""}
@@ -750,9 +745,15 @@ window.Kameen = window.Kameen || {};
           <div style="font-size:11.5px;color:var(--muted);font-weight:700;">راجعوا تقارير المحلل وصوّتوا لطرد المشتبه به</div>
         </div>
 
-        <div class="card">
-          <div class="eyebrow" style="margin-bottom:6px;color:var(--crimson);">تقارير المحلل</div>
-          <div id="meeting-intel-feed" style="display:flex;flex-direction:column;gap:6px;max-height:92px;overflow-y:auto;">
+        <div class="card" style="padding:11px 12px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:7px;">
+            <div class="eyebrow" style="color:var(--crimson);">تقارير المحلل</div>
+            <div style="display:flex;gap:5px;">
+              <button class="btn ${st.meetingIntelTab !== "private" ? "btn-crimson-outline" : "btn-outline"} btn-xs" onclick="onSwitchMeetingIntelTab('public')">العام (${vis.aiReports.length})</button>
+              <button class="btn ${st.meetingIntelTab === "private" ? "btn-warning" : "btn-outline"} btn-xs" onclick="onSwitchMeetingIntelTab('private')">الخاص (${(vis.privateIntel || []).length})</button>
+            </div>
+          </div>
+          <div id="meeting-intel-feed" style="display:flex;flex-direction:column;gap:6px;max-height:110px;overflow-y:auto;">
             ${buildMeetingIntelHtml(vis)}
           </div>
         </div>
@@ -968,7 +969,17 @@ window.Kameen = window.Kameen || {};
   }
 
   function buildMeetingIntelHtml(vis) {
-    if (!vis.aiReports.length) return `<div style="font-size:11.5px;color:var(--muted);">لا توجد تقارير بعد.</div>`;
+    if (K.state.meetingIntelTab === "private") {
+      const priv = vis.privateIntel || [];
+      if (!priv.length) return `<div style="font-size:11.5px;color:var(--muted);">مفيش تحليلات خاصة اشتريتها لحد دلوقتي.</div>`;
+      return [...priv].reverse().map((p) => `
+        <div class="intel-item private-item">
+          <div style="font-size:10px;font-weight:900;color:var(--amber);margin-bottom:2px;">${esc(p.title)} (خاص بك)</div>
+          ${esc(p.text)}
+        </div>
+      `).join("");
+    }
+    if (!vis.aiReports.length) return `<div style="font-size:11.5px;color:var(--muted);">لا توجد تقارير عامة بعد.</div>`;
     return [...vis.aiReports].reverse().map((r) => `<div class="intel-item">${esc(r.summaryText)}</div>`).join("");
   }
 
@@ -1457,25 +1468,118 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // 10. AI Profiler & Events Log
+    // 10. DUAL PROFILER CENTER: المحلل العام (للجميع) + المحلل الخاص (مدفوع ومحفوظ لك فقط!)
     if (st.modal === "intel_log" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
-      const body = `
-        ${vis.aiReports.length
-          ? [...vis.aiReports].reverse().map((r) => `
-              <div class="intel-item">
-                <div class="eyebrow mono" style="color:var(--crimson);margin-bottom:2px;">${r.source === "groq" ? "GROQ AI" : "RADAR INTEL"}</div>
-                ${esc(r.summaryText)}
-              </div>
-            `).join("")
-          : `<div style="font-size:12px;color:var(--muted);text-align:center;padding:10px;">المحلل يراقب التحركات — أول تقرير بعد 85 ثانية.</div>`
-        }
-        <div class="eyebrow" style="margin-top:4px;">سجل الأحداث</div>
-        ${[...vis.events].reverse().slice(0, 12).map((e) => `
-          <div class="chat-msg">${esc(e.message)}</div>
-        `).join("")}
+      const isImp = vis.self.role === "IMPOSTER";
+      const isSpec = vis.self.role === "SPECTATOR" || !vis.self.alive;
+      const isSpread = vis.phase === "SPREAD";
+      const tab = st.intelTab === "private" ? "private" : "public";
+      const privList = vis.privateIntel || [];
+      const pubList = vis.aiReports || [];
+
+      const tabsHtml = `
+        <div class="intel-tabs">
+          <button class="intel-tab-btn ${tab === "public" ? "active-public" : ""}" onclick="onSwitchIntelTab('public')">
+            <span>المحلل العام</span>
+            <span class="ver-pill mono">${pubList.length}</span>
+          </button>
+          <button class="intel-tab-btn ${tab === "private" ? "active-private" : ""}" onclick="onSwitchIntelTab('private')">
+            <span>المحلل الخاص</span>
+            <span class="ver-pill mono" style="${privList.length ? "color:#FCD34D;border-color:var(--amber-border);" : ""}">${privList.length}</span>
+          </button>
+        </div>
       `;
-      mr.innerHTML = bottomSheetHtml("سجل المحلل والميدان", body);
+
+      let contentHtml = "";
+      if (tab === "public") {
+        contentHtml = `
+          <div style="font-size:11px;color:var(--muted);font-weight:700;">
+            تلميحات سلوكية عامة بتوصل لكل اللاعبين في الجيم كل 70 ثانية بناءً على الحركة الحقيقية في الشوارع.
+          </div>
+          ${pubList.length
+            ? [...pubList].reverse().map((r) => `
+                <div class="intel-item">
+                  <div class="intel-meta-row">
+                    <span class="eyebrow mono" style="color:var(--crimson);">${r.source === "groq" ? "GROQ AI • عام" : "رادار الميدان • عام"}</span>
+                    <span class="mono" style="font-size:10px;color:var(--dim);">${Math.max(0, Math.round((vis.nowMs - r.createdAtMs) / 1000))}ث مضت</span>
+                  </div>
+                  ${esc(r.summaryText)}
+                </div>
+              `).join("")
+            : `<div class="card" style="text-align:center;font-size:12px;color:var(--muted);">المحلل العام بيراقب تحركات الميدان — أول تقرير هيوصل قريب.</div>`
+          }
+          <div class="eyebrow" style="margin-top:4px;">سجل أحداث الميدان</div>
+          ${[...vis.events].reverse().slice(0, 10).map((e) => `
+            <div class="chat-msg">${esc(e.message)}</div>
+          `).join("")}
+        `;
+      } else {
+        // PRIVATE PAID PROFILER TAB
+        const orderControls = (isSpec || isSpread)
+          ? `<div style="font-size:11.5px;color:var(--muted);text-align:center;padding:6px;">${isSpread ? "الطلبات الخاصة بتتفتح بعد انتهاء مرحلة التشتيت." : "وضع المشاهدة — أرشيف تحليلاتك الخاصة فقط."}</div>`
+          : (isImp
+              ? `
+                <div class="card" style="padding:10px;border-color:var(--amber-border);display:flex;flex-direction:column;gap:7px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span class="eyebrow" style="color:var(--amber);">اطلب تحليل خاص الآن (يُحفظ هنا للأبد)</span>
+                    <span class="pill pill-amber mono">${vis.self.points}ن</span>
+                  </div>
+                  <div class="grid-2">
+                    <button class="btn btn-crimson-outline btn-xs" onclick="onBuyPrivateIntel('BLOODHOUND')">رادار الصيد (${C.BLOODHOUND_COST}ن)</button>
+                    <button class="btn btn-warning btn-xs" onclick="onBuyPrivateIntel('IMP_INTEL')">تحليل الصياد (${C.IMP_INTEL_COST || 25}ن)</button>
+                  </div>
+                </div>
+              `
+              : `
+                <div class="card" style="padding:10px;border-color:var(--amber-border);display:flex;flex-direction:column;gap:7px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;">
+                    <span class="eyebrow" style="color:var(--amber);">اطلب تحليل خاص الآن (يُحفظ هنا للأبد)</span>
+                    <span class="pill pill-cyan mono">${vis.self.points}ن</span>
+                  </div>
+                  <div class="grid-3">
+                    <button class="btn btn-cyan btn-xs" onclick="onTogglePrivateScanBox()">مسح مكان (${C.LOCATION_QUESTION_COST}ن)</button>
+                    <button class="btn btn-warning btn-xs" onclick="onBuyPrivateIntel('PRIVATE_PROFILE')">تحليل سلوكي (${C.PRIVATE_PROFILE_COST || 30}ن)</button>
+                    <button class="btn btn-crimson-outline btn-xs" onclick="onBuyPrivateIntel('BOLD_HINT')">تلميح غدّار (${C.BOLD_HINT_COST}ن)</button>
+                  </div>
+                  ${st.privateScanOpen ? `
+                    <div style="padding-top:6px;border-top:1px solid var(--border);">
+                      <div style="font-size:10.5px;color:var(--cyan);font-weight:800;margin-bottom:5px;">اختار المنطقة اللي عايز تمسحها (${C.LOCATION_QUESTION_COST}ن):</div>
+                      <div class="grid-2" style="gap:5px;">
+                        ${(vis.landmarks || []).map((lm) =>
+                          `<button class="btn btn-outline btn-xs" style="justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="onBuyPrivateScan('${esc(lm.id)}')">${esc(lm.name)}</button>`
+                        ).join("")}
+                      </div>
+                    </div>
+                  ` : ""}
+                </div>
+              `);
+
+        contentHtml = `
+          ${orderControls}
+          <div class="eyebrow" style="color:var(--amber);margin-top:2px;">أرشيف تحليلاتك الخاصة (لك أنت فقط)</div>
+          ${privList.length
+            ? [...privList].reverse().map((item) => `
+                <div class="intel-item private-item">
+                  <div class="intel-meta-row">
+                    <span class="pill pill-amber" style="padding:1px 7px;font-size:10px;">${esc(item.title)}${item.cost ? " • " + item.cost + "ن" : ""}</span>
+                    <span class="mono" style="font-size:10px;color:var(--muted);">${item.source === "groq" ? "GROQ AI • " : ""}${Math.max(0, Math.round((vis.nowMs - item.createdAtMs) / 1000))}ث مضت</span>
+                  </div>
+                  <div style="font-size:12.5px;line-height:1.65;color:var(--text);">${esc(item.text)}</div>
+                </div>
+              `).join("")
+            : `<div class="card" style="text-align:center;font-size:12px;color:var(--muted);padding:16px 12px;">
+                لسه مشتريتش أي تحليل خاص.<br/>أي تحليل هتدفعله نقاط هيفضل محفوظ هنا تقدر ترجعله في أي وقت حتى جوه الاجتماع الطارئ!
+              </div>`
+          }
+        `;
+      }
+
+      mr.innerHTML = bottomSheetHtml(
+        tab === "private" ? "المحلل الخاص (سري لك)" : "المحلل العام (للجميع)",
+        tabsHtml + contentHtml,
+        tab === "private" ? "var(--amber)" : "#FF6B7D"
+      );
       return;
     }
 
