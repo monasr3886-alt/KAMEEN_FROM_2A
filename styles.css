@@ -73,7 +73,9 @@ html, body {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100dvh;
+  height: 100%;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
   font-family: 'Cairo', system-ui, -apple-system, sans-serif;
   background: #000000;
@@ -86,13 +88,7 @@ html, body {
 .tnum { font-variant-numeric: tabular-nums; }
 .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; }
 
-body.screen-shake {
-  animation: shakeFx 0.28s ease-out both;
-}
-@keyframes shakeFx {
-  20%, 60% { transform: translate3d(-3px, 0, 0); }
-  40%, 80% { transform: translate3d(3px, 0, 0); }
-}
+/* Stable zero-shake UI: body transforms disabled to prevent trembling */
 
 /* Edge Vignettes (Pure opacity transitions — zero GPU blur cost) */
 #danger-vignette {
@@ -186,13 +182,13 @@ body.screen-shake {
    APP SHELL
    ============================================================ */
 .app-shell {
+  position: fixed;
+  inset: 0;
   max-width: 480px;
   margin: 0 auto;
-  height: 100dvh;
   display: flex;
   flex-direction: column;
   background: #000000;
-  position: relative;
 }
 
 .app-topbar {
@@ -268,7 +264,7 @@ body.screen-shake {
   background: var(--crimson);
 }
 .tab-item.active svg { stroke: var(--crimson); }
-.tab-item:active { transform: scale(0.95); }
+.tab-item:active { opacity: 0.80; }
 
 /* ============================================================
    TACTICAL SURFACES, RADAR HERO & PRECISION CONTROLS
@@ -398,7 +394,7 @@ body.screen-shake {
   flex-shrink: 0;
   box-shadow: var(--bevel);
 }
-.icon-btn:active { background: var(--surface-3); transform: scale(0.94); }
+.icon-btn:active { background: var(--surface-3); }
 .icon-btn svg {
   width: 19px; height: 19px;
   stroke: currentColor; fill: none;
@@ -441,7 +437,7 @@ body.screen-shake {
   box-shadow: var(--bevel);
   transition: transform 0.12s, background 0.12s;
 }
-.btn:active { transform: scale(0.97); }
+.btn:active { opacity: 0.84; }
 .btn:disabled { opacity: 0.36; cursor: not-allowed; transform: none; }
 
 .btn-primary {
@@ -799,7 +795,7 @@ body[data-role="investigator"] .hud-topbar { border-color: var(--cyan-border); }
   stroke: currentColor; fill: none;
   stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
 }
-.map-fab:active { transform: scale(0.92); }
+.map-fab:active { opacity: 0.78; }
 .map-fab.active-fab {
   border-color: var(--role-accent);
   color: var(--role-accent);
@@ -849,7 +845,7 @@ body[data-role="investigator"] .role-dock { border-color: var(--cyan-border); }
   stroke: currentColor; fill: none;
   stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
 }
-.dock-btn:active { transform: scale(0.94); }
+.dock-btn:active { opacity: 0.78; }
 .dock-btn:disabled { opacity: 0.30; cursor: not-allowed; }
 .dock-btn.primary-dock {
   background: var(--role-tint);
@@ -936,8 +932,8 @@ body[data-role="imposter"] .dock-badge { color: #FFFFFF; }
   animation: sheetUp 0.18s ease-out;
 }
 @keyframes sheetUp {
-  from { transform: translateY(34px); opacity: 0.65; }
-  to { transform: translateY(0); opacity: 1; }
+  from { opacity: 0.72; }
+  to { opacity: 1; }
 }
 
 .sheet-handle {
@@ -1384,4 +1380,115 @@ body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
   border-radius: 15px;
   padding: 11px 12px;
   box-shadow: var(--bevel);
+}
+
+
+/* ============================================================
+   ZERO-JITTER UI STABILITY & IN-GAME GLOBAL LIVE CHAT
+   ============================================================ */
+.hud-topbar,
+.hud-ticker,
+.role-dock,
+.hud-panel {
+  contain: layout style;
+}
+
+.hud-clock-fixed {
+  display: inline-block;
+  min-width: 44px;
+  text-align: center;
+}
+
+.hud-ping-fixed {
+  min-width: 78px;
+  justify-content: center;
+}
+
+.hud-edge-fixed {
+  min-width: 72px;
+  justify-content: center;
+}
+
+.role-dock.dock-5 {
+  grid-template-columns: repeat(5, 1fr);
+  gap: 2px;
+  padding: 5px 4px;
+}
+
+.role-dock.dock-5 .dock-btn {
+  padding: 8px 2px;
+  font-size: 9.8px;
+}
+
+.role-dock.dock-3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.dock-badge.chat-badge {
+  background: var(--emerald);
+  color: #03150E !important;
+}
+
+.live-chat-feed {
+  min-height: 210px;
+  max-height: 44vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 2px;
+  -webkit-overflow-scrolling: touch;
+}
+.live-chat-feed::-webkit-scrollbar { display: none; }
+
+.chat-bubble {
+  max-width: 88%;
+  align-self: flex-start;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 14px 14px 14px 4px;
+  padding: 8px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.chat-bubble.mine {
+  align-self: flex-end;
+  background: #141926;
+  border-color: rgba(56, 189, 248, 0.36);
+  border-radius: 14px 14px 4px 14px;
+}
+
+.chat-bubble-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 10.5px;
+  font-weight: 800;
+}
+
+.chat-bubble-body {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.chat-quick-strip {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  padding: 2px 0 4px;
+}
+.chat-quick-strip::-webkit-scrollbar { display: none; }
+
+.chat-composer {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
 }

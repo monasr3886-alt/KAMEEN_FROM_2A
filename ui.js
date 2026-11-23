@@ -33,6 +33,7 @@ window.Kameen = window.Kameen || {};
     bolt: `<svg viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>`,
     cpu: `<svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/></svg>`,
     flag: `<svg viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>`,
+    chat: `<svg viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`,
     close: `<svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
   };
 
@@ -252,6 +253,14 @@ window.Kameen = window.Kameen || {};
         </div>
       `;
     }
+    if (st.lastChatBanner && (Date.now() - st.lastChatBanner.atMs) < 5500 && st.modal !== "live_chat") {
+      return `
+        <div class="hud-ticker" style="cursor:pointer;border-right-color:var(--emerald);" onclick="onOpenLiveChat()">
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">شات • <b>${esc(st.lastChatBanner.sender)}:</b> ${esc(st.lastChatBanner.text)}</span>
+          <span class="pill pill-green" style="font-size:10px;padding:1px 6px;">رد</span>
+        </div>
+      `;
+    }
     if (st.lastIntel) {
       return `
         <div class="hud-ticker" style="cursor:pointer;" onclick="onOpenModal('intel_log')">
@@ -264,8 +273,13 @@ window.Kameen = window.Kameen || {};
   }
 
   // =========================================================================
-  // ZERO-OVERLAP TACTICAL MAP / RADAR HUD
+  // ZERO-FLICKER SURGICAL MAP / RADAR HUD (MOUNT ONCE + PATCH IN PLACE!)
   // =========================================================================
+  function setTextIfChanged(id, val) {
+    const el = document.getElementById(id);
+    if (el && el.textContent !== String(val)) el.textContent = String(val);
+  }
+
   function updateHudOnly() {
     const st = K.state;
     const topEl = document.getElementById("map-hud-top");
@@ -275,53 +289,72 @@ window.Kameen = window.Kameen || {};
 
     renderSimDpad();
 
-    // --- A) CREATE ZONE SCREEN ---
+    // --- A) CREATE ZONE SCREEN (Mount once, patch text only) ---
     if (st.route === "create") {
       K.setBodyRoleTheme("neutral");
       K.setDangerVignette(false);
-      if (K.isUserTyping() && document.activeElement.id === "create-title-inp") return;
       const f = st.createForm;
       const accTxt = st.gps.accuracy
         ? `دقة الموقع ±${st.gps.accuracy < 10 ? Number(st.gps.accuracy).toFixed(1) : Math.round(st.gps.accuracy)}م • اضغط لتحريك الزون`
         : "جاري تحديد موقعك الحقيقي...";
 
-      setHtmlIfChanged(topEl, `
-        <div class="hud-topbar">
-          <button class="icon-btn" style="width:36px;height:36px;" onclick="onNav('landing')">${ICONS.back}</button>
-          <div style="text-align:center;min-width:0;">
-            <div style="font-size:13.5px;font-weight:900;">تحديد منطقة الكمين</div>
-            <div id="create-gps-sub" style="font-size:10.5px;color:var(--muted);font-weight:700;">${esc(accTxt)}</div>
+      if (topEl.dataset.hudMode !== "create") {
+        topEl.dataset.hudMode = "create";
+        topEl.innerHTML = `
+          <div class="hud-topbar">
+            <button class="icon-btn" style="width:36px;height:36px;" onclick="onNav('landing')">${ICONS.back}</button>
+            <div style="text-align:center;min-width:0;">
+              <div style="font-size:13.5px;font-weight:900;">تحديد منطقة الكمين</div>
+              <div id="create-gps-sub" style="font-size:10.5px;color:var(--muted);font-weight:700;">${esc(accTxt)}</div>
+            </div>
+            <button class="icon-btn" style="width:36px;height:36px;" onclick="onOpenModal('game_settings')">${ICONS.sliders}</button>
           </div>
-          <button class="icon-btn" style="width:36px;height:36px;" onclick="onOpenModal('game_settings')">${ICONS.sliders}</button>
-        </div>
-        ${st.gps.anchorCalibrating ? `
+          <div id="create-anchor-slot"></div>
+        `;
+      } else {
+        setTextIfChanged("create-gps-sub", accTxt);
+      }
+      const anchorSlot = document.getElementById("create-anchor-slot");
+      if (anchorSlot) {
+        setHtmlIfChanged(anchorSlot, st.gps.anchorCalibrating ? `
           <div class="hud-ticker amber">
             <span>اضغط على مكانك الحقيقي على الرادار</span>
             <button class="btn btn-outline btn-xs" onclick="onCancelAnchorCalibration()">إلغاء</button>
           </div>
-        ` : ""}
-      `);
+        ` : "");
+      }
 
-      setHtmlIfChanged(sideEl, `
-        <button class="map-fab" title="موقعي" onclick="onUseMyLocationForZone()">${ICONS.target}</button>
-        <button class="map-fab" title="نمط الرادار" onclick="Kameen.Map.cycleStyle()">${ICONS.radar}</button>
-      `);
+      if (sideEl.dataset.sideMode !== "create") {
+        sideEl.dataset.sideMode = "create";
+        sideEl.innerHTML = `
+          <button class="map-fab" title="موقعي" onclick="onUseMyLocationForZone()">${ICONS.target}</button>
+          <button class="map-fab" title="نمط الرادار" onclick="Kameen.Map.cycleStyle()">${ICONS.radar}</button>
+        `;
+      }
 
-      setHtmlIfChanged(botEl, `
-        <div class="hud-panel" style="display:flex;flex-direction:column;gap:10px;">
-          <div style="display:flex;justify-content:space-between;align-items:center;">
-            <div>
-              <div class="eyebrow">ZONE RADIUS &amp; RADAR PING</div>
-              <div id="create-radius-lbl" style="font-size:13px;font-weight:900;">نصف القطر <span style="color:var(--crimson);" class="mono">${f.radius}m</span> • رصد كل ${formatRevealLabel(f.revealIntervalSec)}</div>
+      if (botEl.dataset.dockMode !== "create") {
+        botEl.dataset.dockMode = "create";
+        botEl.innerHTML = `
+          <div class="hud-panel" style="display:flex;flex-direction:column;gap:10px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div class="eyebrow">ZONE RADIUS &amp; RADAR PING</div>
+                <div id="create-radius-lbl" style="font-size:13px;font-weight:900;">نصف القطر <span style="color:var(--crimson);" class="mono">${f.radius}m</span> • رصد كل ${formatRevealLabel(f.revealIntervalSec)}</div>
+              </div>
+              <button class="btn btn-outline btn-xs" onclick="onOpenModal('game_settings')">الإعدادات</button>
             </div>
-            <button class="btn btn-outline btn-xs" onclick="onOpenModal('game_settings')">الإعدادات</button>
+            <input id="create-radius-slider" type="range" min="100" max="800" step="25" value="${f.radius}" style="width:100%;accent-color:var(--crimson);"
+              oninput="onRadiusSlide(this.value)"
+              onchange="void Kameen.Map.fetchOverpassPOIs(Kameen.state.createForm.center, Kameen.state.createForm.radius)" />
+            <button class="btn btn-primary" style="width:100%;padding:13px;" onclick="onCreateMatch()">إنشاء الغرفة ودعوة اللاعبين</button>
           </div>
-          <input type="range" min="100" max="800" step="25" value="${f.radius}" style="width:100%;accent-color:var(--crimson);"
-            oninput="onRadiusSlide(this.value)"
-            onchange="void Kameen.Map.fetchOverpassPOIs(Kameen.state.createForm.center, Kameen.state.createForm.radius)" />
-          <button class="btn btn-primary" style="width:100%;padding:13px;" onclick="onCreateMatch()">إنشاء الغرفة ودعوة اللاعبين</button>
-        </div>
-      `);
+        `;
+      } else {
+        const lbl = document.getElementById("create-radius-lbl");
+        if (lbl) {
+          setHtmlIfChanged(lbl, `نصف القطر <span style="color:var(--crimson);" class="mono">${f.radius}m</span> • رصد كل ${formatRevealLabel(f.revealIntervalSec)}`);
+        }
+      }
       return;
     }
 
@@ -331,6 +364,7 @@ window.Kameen = window.Kameen || {};
     const isImp = vis.self.role === "IMPOSTER";
     const isSpec = vis.self.role === "SPECTATOR" || !vis.self.alive;
     const isSpread = vis.phase === "SPREAD";
+    const roleKey = isSpec ? "spec" : (isImp ? "imp" : "inv");
 
     K.setBodyRoleTheme(isSpec ? "ghost" : (isImp ? "imposter" : "investigator"));
     K.setDangerVignette(Boolean(vis.outsideZoneRemainingMs !== null || vis.showdownActive));
@@ -354,144 +388,228 @@ window.Kameen = window.Kameen || {};
     const dropCanClaim = drop && !isSpec && dropDist <= C.AIRDROP_CLAIM_RANGE_M + 5;
     const invPct = Math.min(100, Math.round((vis.investigationDone / Math.max(1, vis.investigationGoal)) * 100));
 
-    // Live distance to safe zone edge (positive = safe margin inside; negative = outside!)
     const distToCenter = Math.round(K.Geo.distanceMeters(vis.self.coords, vis.zone.center));
     const edgeMargin = Math.round(vis.zone.currentRadiusMeters - distToCenter);
     const edgeTone = edgeMargin < 0 ? "pill-red" : (edgeMargin <= 25 ? "pill-amber" : "pill-green");
     const edgeLabel = edgeMargin < 0 ? `خارج ${Math.abs(edgeMargin)}م` : `الحدود ${edgeMargin}م`;
 
-    // Side tactical rail (includes Pocket Shield!)
-    setHtmlIfChanged(sideEl, `
-      <button id="follow-gps-fab" class="map-fab ${st.mapFollowMe ? "active-fab" : ""}" title="تتبع موقعي" onclick="Kameen.Map.recenter()">${ICONS.target}</button>
-      <button id="compass-rot-fab" class="map-fab ${st.mapRotateWithMe ? "active-fab" : ""}" title="لف الرادار مع البوصلة" onclick="Kameen.Map.toggleHeadingUp()">${ICONS.compass}</button>
-      <button class="map-fab" title="نمط الرادار" onclick="Kameen.Map.cycleStyle()">${ICONS.radar}</button>
-      <button class="map-fab" title="وضع الجيب (توفير البطارية)" onclick="onEnterPocketMode()">${ICONS.lock}</button>
-      ${st.route === "simulation" ? `<button class="map-fab active-fab mono" title="أدوات المحاكاة" onclick="onOpenModal('sim_tools')" style="font-size:10px;">SIM</button>` : ""}
-    `);
-
-    const pingChip = isSpread
-      ? `<span class="pill pill-amber mono">تشتيت ${fmt(vis.spreadRemainingMs)}</span>`
-      : (vis.revealMode === "live" && vis.isRevealActive
-          ? `<span class="pill pill-red mono">لايف ${Math.ceil(vis.revealRemainingMs / 1000)}s</span>`
-          : `<span class="pill mono">رصد ${fmt(vis.nextRevealInMs)}</span>`);
-
-    const rolePill = isSpec
-      ? `<span class="pill">مشاهد</span>`
-      : (isImp
-          ? `<span class="pill pill-red">غدّار • <b class="mono">${vis.self.points}</b>ن</span>`
-          : `<span class="pill pill-cyan">محقق • <b class="mono">${vis.self.points}</b>ن</span>`);
-
-    const tickerHtml = buildSinglePriorityTicker(
-      vis, st, C, activeMission, activeDist, brokerActive, brokerRem, drop, dropDist, dropCanClaim
-    );
-
-    setHtmlIfChanged(topEl, `
-      <div class="hud-topbar" style="flex-direction:column;align-items:stretch;gap:0;">
-        <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
-          ${rolePill}
-          <div style="display:flex;align-items:center;gap:6px;">
-            <span class="mono" style="font-weight:800;font-size:14px;">${fmt(vis.remainingMatchMs)}</span>
-            ${pingChip}
-          </div>
-          <button class="icon-btn" style="width:34px;height:34px;" aria-label="القائمة والإعدادات" onclick="onOpenModal('game_settings')">${ICONS.menu}</button>
-        </div>
-        <div class="hud-telemetry-strip">
-          ${!isSpec && !isImp && !isSpread ? `
-            <span style="font-size:10px;font-weight:800;color:var(--cyan);white-space:nowrap;" class="mono">القضية ${vis.investigationDone}/${vis.investigationGoal}</span>
-            <div class="inv-progress-track"><div class="inv-progress-fill" style="width:${invPct}%;"></div></div>
-          ` : `
-            <span style="font-size:10.5px;font-weight:800;color:var(--muted);">نصف قطر الزون <b class="mono" style="color:var(--text);">${vis.zone.currentRadiusMeters}m</b></span>
-          `}
-          <span class="pill ${edgeTone} mono" style="padding:2px 7px;font-size:10px;">${edgeLabel}</span>
-        </div>
-      </div>
-      ${tickerHtml}
-    `);
-
-    // --- SPECTATOR / GHOST DOCK ---
-    if (isSpec) {
-      setHtmlIfChanged(botEl, `
-        <div class="role-dock" style="grid-template-columns:1fr 1fr;">
-          <button class="dock-btn primary-dock" onclick="onOpenModal('intel_log')">
-            ${ICONS.cpu}<span>سجل المحلل (${vis.aiReports.length})</span>
-          </button>
-          <button class="dock-btn" onclick="exitGameToLanding()">
-            ${ICONS.back}<span>خروج</span>
-          </button>
-        </div>
-      `);
-      return;
+    // --- 1) SIDE RAIL (Mount once per route, toggle active classes only) ---
+    const sideMode = st.route;
+    if (sideEl.dataset.sideMode !== sideMode) {
+      sideEl.dataset.sideMode = sideMode;
+      sideEl.innerHTML = `
+        <button id="follow-gps-fab" class="map-fab ${st.mapFollowMe ? "active-fab" : ""}" title="تتبع موقعي" onclick="Kameen.Map.recenter()">${ICONS.target}</button>
+        <button id="compass-rot-fab" class="map-fab ${st.mapRotateWithMe ? "active-fab" : ""}" title="لف الرادار مع البوصلة" onclick="Kameen.Map.toggleHeadingUp()">${ICONS.compass}</button>
+        <button class="map-fab" title="نمط الرادار" onclick="Kameen.Map.cycleStyle()">${ICONS.radar}</button>
+        <button class="map-fab" title="وضع الجيب (توفير البطارية)" onclick="onEnterPocketMode()">${ICONS.lock}</button>
+        ${st.route === "simulation" ? `<button class="map-fab active-fab mono" title="أدوات المحاكاة" onclick="onOpenModal('sim_tools')" style="font-size:10px;">SIM</button>` : ""}
+      `;
+    } else {
+      const fFab = document.getElementById("follow-gps-fab");
+      if (fFab) fFab.classList.toggle("active-fab", Boolean(st.mapFollowMe));
+      const cFab = document.getElementById("compass-rot-fab");
+      if (cFab) cFab.classList.toggle("active-fab", Boolean(st.mapRotateWithMe));
     }
 
-    // --- IMPOSTER BOTTOM DOCK ---
-    if (isImp) {
-      const nt = vis.nearestTarget;
-      let actionHtml = "";
-      if (!isSpread && nt) {
-        const canKill = nt.inKillRange && killCdSec === 0;
-        const lbl = killCdSec > 0
-          ? `تهدئة التفنيش (${killCdSec}ث)`
-          : (nt.inKillRange
-              ? `إقصاء ${esc(nt.name || "الهدف")} الآن`
-              : `أقرب هدف: ${nt.dist}م`);
-        actionHtml = `
-          <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
-            <button class="hero-action-fab tnum"
-              style="background:${canKill ? "var(--crimson)" : "#121218"};border-color:${canKill ? "#FF6B7D" : "var(--border-strong)"};"
-              ${canKill ? "" : "disabled"}
-              onclick="onKillTarget('${nt.id}')">${lbl}</button>
-            ${nearbyBody ? `<button class="btn btn-outline btn-sm" onclick="onReportBody('${nearbyBody.id}')">بلاغ تمويه</button>` : ""}
+    // --- 2) TOP BAR (Mount ONCE per role/spread mode, surgically patch timers & numbers only!) ---
+    const hudMode = `${roleKey}|${isSpread ? "spread" : "active"}`;
+    if (topEl.dataset.hudMode !== hudMode) {
+      topEl.dataset.hudMode = hudMode;
+      const roleClass = isSpec ? "pill" : (isImp ? "pill pill-red" : "pill pill-cyan");
+      topEl.innerHTML = `
+        <div class="hud-topbar" style="flex-direction:column;align-items:stretch;gap:0;">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:6px;">
+            <span id="hud-role-pill" class="${roleClass}"></span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span id="hud-clock" class="mono hud-clock-fixed" style="font-weight:800;font-size:14px;"></span>
+              <span id="hud-ping" class="pill mono hud-ping-fixed"></span>
+            </div>
+            <button class="icon-btn" style="width:34px;height:34px;" aria-label="القائمة والإعدادات" onclick="onOpenModal('game_settings')">${ICONS.menu}</button>
+          </div>
+          <div class="hud-telemetry-strip">
+            ${!isSpec && !isImp && !isSpread ? `
+              <span id="hud-inv-txt" style="font-size:10px;font-weight:800;color:var(--cyan);white-space:nowrap;" class="mono"></span>
+              <div class="inv-progress-track"><div id="hud-inv-bar" class="inv-progress-fill" style="width:0%;"></div></div>
+            ` : `
+              <span style="font-size:10.5px;font-weight:800;color:var(--muted);">نصف قطر الزون <b id="hud-zone-rad" class="mono" style="color:var(--text);"></b></span>
+            `}
+            <span id="hud-edge-pill" class="pill mono hud-edge-fixed" style="padding:2px 7px;font-size:10px;"></span>
+          </div>
+        </div>
+        <div id="hud-ticker-slot"></div>
+      `;
+    }
+
+    // Surgical text updates (ZERO DOM destruction!)
+    const roleText = isSpec
+      ? "مشاهد"
+      : (isImp ? `غدّار • ${vis.self.points}ن` : `محقق • ${vis.self.points}ن`);
+    setTextIfChanged("hud-role-pill", roleText);
+    setTextIfChanged("hud-clock", fmt(vis.remainingMatchMs));
+
+    const pingEl = document.getElementById("hud-ping");
+    if (pingEl) {
+      let pTxt = `رصد ${fmt(vis.nextRevealInMs)}`;
+      let pCls = "pill mono hud-ping-fixed";
+      if (isSpread) { pTxt = `تشتيت ${fmt(vis.spreadRemainingMs)}`; pCls = "pill pill-amber mono hud-ping-fixed"; }
+      else if (vis.revealMode === "live" && vis.isRevealActive) { pTxt = `لايف ${Math.ceil(vis.revealRemainingMs / 1000)}s`; pCls = "pill pill-red mono hud-ping-fixed"; }
+      if (pingEl.textContent !== pTxt) pingEl.textContent = pTxt;
+      if (pingEl.className !== pCls) pingEl.className = pCls;
+    }
+
+    if (!isSpec && !isImp && !isSpread) {
+      setTextIfChanged("hud-inv-txt", `القضية ${vis.investigationDone}/${vis.investigationGoal}`);
+      const barEl = document.getElementById("hud-inv-bar");
+      if (barEl) barEl.style.width = `${invPct}%`;
+    } else {
+      setTextIfChanged("hud-zone-rad", `${vis.zone.currentRadiusMeters}m`);
+    }
+
+    const edgeEl = document.getElementById("hud-edge-pill");
+    if (edgeEl) {
+      const eCls = `pill ${edgeTone} mono hud-edge-fixed`;
+      if (edgeEl.textContent !== edgeLabel) edgeEl.textContent = edgeLabel;
+      if (edgeEl.className !== eCls) edgeEl.className = eCls;
+    }
+
+    const tickerSlot = document.getElementById("hud-ticker-slot");
+    if (tickerSlot) {
+      const tickerHtml = buildSinglePriorityTicker(
+        vis, st, C, activeMission, activeDist, brokerActive, brokerRem, drop, dropDist, dropCanClaim
+      );
+      setHtmlIfChanged(tickerSlot, tickerHtml);
+    }
+
+    // --- 3) BOTTOM ROLE DOCK (Mount ONCE per role/spread mode, patch badges & hero slot only!) ---
+    const dockMode = `${roleKey}|${isSpread ? "spread" : "active"}`;
+    const liveChatList = vis.liveChat || [];
+    const unreadChat = st.modal === "live_chat" ? 0 : Math.max(0, liveChatList.length - (st.lastReadLiveChatCount || 0));
+    const totalIntel = vis.aiReports.length + (vis.privateIntel || []).length;
+    const completedMissions = vis.missions.filter((m) => m.status === "completed").length;
+
+    if (botEl.dataset.dockMode !== dockMode) {
+      botEl.dataset.dockMode = dockMode;
+      if (isSpec) {
+        botEl.innerHTML = `
+          <div id="hud-hero-slot"></div>
+          <div class="role-dock dock-3">
+            <button class="dock-btn" onclick="onOpenLiveChat()">
+              ${ICONS.chat}<span>الشات</span>
+              <span id="dock-badge-chat" class="dock-badge chat-badge hidden">0</span>
+            </button>
+            <button class="dock-btn primary-dock" onclick="onOpenModal('intel_log')">
+              ${ICONS.cpu}<span>المحلل</span>
+              <span id="dock-badge-intel" class="dock-badge hidden">0</span>
+            </button>
+            <button class="dock-btn" onclick="exitGameToLanding()">
+              ${ICONS.back}<span>خروج</span>
+            </button>
+          </div>
+        `;
+      } else if (isImp) {
+        botEl.innerHTML = `
+          <div id="hud-hero-slot"></div>
+          <div class="role-dock">
+            <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('missions_sheet')">
+              ${ICONS.flag}<span>التمويه</span>
+              <span id="dock-badge-missions" class="dock-badge">0/3</span>
+            </button>
+            <button class="dock-btn primary-dock" ${isSpread ? "disabled" : ""} onclick="onOpenModal('imposter_powers')">
+              ${ICONS.bolt}<span>الألاعيب</span>
+              <span id="dock-badge-pts" class="dock-badge">100</span>
+            </button>
+            <button class="dock-btn" onclick="onOpenLiveChat()">
+              ${ICONS.chat}<span>الشات</span>
+              <span id="dock-badge-chat" class="dock-badge chat-badge hidden">0</span>
+            </button>
+            <button class="dock-btn" onclick="onOpenModal('intel_log')">
+              ${ICONS.cpu}<span>المحلل</span>
+              <span id="dock-badge-intel" class="dock-badge hidden">0</span>
+            </button>
+          </div>
+        `;
+      } else {
+        botEl.innerHTML = `
+          <div id="hud-hero-slot"></div>
+          <div class="role-dock dock-5">
+            <button class="dock-btn primary-dock" ${isSpread ? "disabled" : ""} onclick="onOpenModal('missions_sheet')">
+              ${ICONS.flag}<span>المهام</span>
+              <span id="dock-badge-missions" class="dock-badge">0/3</span>
+            </button>
+            <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('investigator_powers')">
+              ${ICONS.shield}<span>الأدوات</span>
+              <span id="dock-badge-pts" class="dock-badge">100</span>
+            </button>
+            <button class="dock-btn" onclick="onOpenLiveChat()">
+              ${ICONS.chat}<span>الشات</span>
+              <span id="dock-badge-chat" class="dock-badge chat-badge hidden">0</span>
+            </button>
+            <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('spoken')">
+              ${ICONS.target}<span>اتهام</span>
+            </button>
+            <button class="dock-btn" onclick="onOpenModal('intel_log')">
+              ${ICONS.cpu}<span>المحلل</span>
+              <span id="dock-badge-intel" class="dock-badge hidden">0</span>
+            </button>
           </div>
         `;
       }
-      setHtmlIfChanged(botEl, `
-        ${actionHtml}
-        <div class="role-dock">
-          <button class="dock-btn" onclick="Kameen.Map.recenter()">
-            ${ICONS.target}<span>الرادار</span>
-          </button>
-          <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('missions_sheet')">
-            ${ICONS.flag}<span>التمويه</span>
-            <span class="dock-badge">${vis.missions.filter((m) => m.status === "completed").length}/3</span>
-          </button>
-          <button class="dock-btn primary-dock" ${isSpread ? "disabled" : ""} onclick="onOpenModal('imposter_powers')">
-            ${ICONS.bolt}<span>الألاعيب</span>
-            <span class="dock-badge">${vis.self.points}</span>
-          </button>
-          <button class="dock-btn" onclick="onOpenModal('intel_log')">
-            ${ICONS.cpu}<span>المحلل</span>
-            ${(vis.aiReports.length + (vis.privateIntel || []).length) ? `<span class="dock-badge">${vis.aiReports.length + (vis.privateIntel || []).length}</span>` : ""}
-          </button>
-        </div>
-      `);
-      return;
     }
 
-    // --- INVESTIGATOR BOTTOM DOCK ---
-    setHtmlIfChanged(botEl, `
-      ${!isSpread && nearbyBody ? `
-        <button class="hero-action-fab" style="background:var(--crimson);border-color:#FF6B7D;" onclick="onReportBody('${nearbyBody.id}')">
-          إبلاغ عن جثة ${esc(nearbyBody.victimName)} — اجتماع طارئ
-        </button>
-      ` : ""}
-      <div class="role-dock">
-        <button class="dock-btn primary-dock" ${isSpread ? "disabled" : ""} onclick="onOpenModal('missions_sheet')">
-          ${ICONS.flag}<span>المهام</span>
-          <span class="dock-badge">${vis.missions.filter((m) => m.status === "completed").length}/3</span>
-        </button>
-        <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('investigator_powers')">
-          ${ICONS.shield}<span>الأدوات</span>
-          <span class="dock-badge">${vis.self.points}</span>
-        </button>
-        <button class="dock-btn" ${isSpread ? "disabled" : ""} onclick="onOpenModal('spoken')">
-          ${ICONS.target}<span>اتهام</span>
-        </button>
-        <button class="dock-btn" onclick="onOpenModal('intel_log')">
-          ${ICONS.cpu}<span>المحلل</span>
-          ${(vis.aiReports.length + (vis.privateIntel || []).length) ? `<span class="dock-badge">${vis.aiReports.length + (vis.privateIntel || []).length}</span>` : ""}
-        </button>
-      </div>
-    `);
+    // Surgical Dock Badges Update
+    setTextIfChanged("dock-badge-missions", `${completedMissions}/3`);
+    setTextIfChanged("dock-badge-pts", `${vis.self.points}`);
+
+    const chatB = document.getElementById("dock-badge-chat");
+    if (chatB) {
+      chatB.classList.toggle("hidden", unreadChat <= 0);
+      if (unreadChat > 0 && chatB.textContent !== String(unreadChat)) {
+        chatB.textContent = unreadChat > 9 ? "9+" : String(unreadChat);
+      }
+    }
+
+    const intelB = document.getElementById("dock-badge-intel");
+    if (intelB) {
+      intelB.classList.toggle("hidden", totalIntel <= 0);
+      if (totalIntel > 0 && intelB.textContent !== String(totalIntel)) {
+        intelB.textContent = String(totalIntel);
+      }
+    }
+
+    // Surgical Hero Action Slot (Kill / Report Body)
+    const heroSlot = document.getElementById("hud-hero-slot");
+    if (heroSlot) {
+      let heroHtml = "";
+      if (!isSpec && !isSpread) {
+        if (isImp) {
+          const nt = vis.nearestTarget;
+          if (nt) {
+            const canKill = nt.inKillRange && killCdSec === 0;
+            const lbl = killCdSec > 0
+              ? `تهدئة التفنيش (${killCdSec}ث)`
+              : (nt.inKillRange ? `إقصاء ${esc(nt.name || "الهدف")} الآن` : `أقرب هدف: ${nt.dist}م`);
+            heroHtml = `
+              <div style="display:flex;justify-content:center;gap:8px;flex-wrap:wrap;">
+                <button class="hero-action-fab tnum"
+                  style="background:${canKill ? "var(--crimson)" : "#121218"};border-color:${canKill ? "#FF6B7D" : "var(--border-strong)"};"
+                  ${canKill ? "" : "disabled"}
+                  onclick="onKillTarget('${nt.id}')">${lbl}</button>
+                ${nearbyBody ? `<button class="btn btn-outline btn-sm" onclick="onReportBody('${nearbyBody.id}')">بلاغ تمويه</button>` : ""}
+              </div>
+            `;
+          }
+        } else if (nearbyBody) {
+          heroHtml = `
+            <div style="display:flex;justify-content:center;">
+              <button class="hero-action-fab" style="background:var(--crimson);border-color:#FF6B7D;" onclick="onReportBody('${nearbyBody.id}')">
+                إبلاغ عن جثة ${esc(nearbyBody.victimName)} — اجتماع طارئ
+              </button>
+            </div>
+          `;
+        }
+      }
+      setHtmlIfChanged(heroSlot, heroHtml);
+    }
   }
 
   // =========================================================================
@@ -680,33 +798,8 @@ window.Kameen = window.Kameen || {};
           ${isHost ? `<button class="btn btn-outline btn-xs" onclick="onAddBotToLobby()">+ إضافة بوت</button>` : `<span class="pill sb-status-badge">متصل</span>`}
         </div>
 
-        <div style="display:flex;flex-direction:column;gap:7px;">
-          ${l.players.map((p, idx) => {
-            const pDist = p.coords ? Math.round(K.Geo.distanceMeters(p.coords, l.center)) : null;
-            const inZone = p.isBot || (pDist !== null && pDist <= l.radius + 10);
-            const zoneBadge = p.isSpectator
-              ? `<span class="pill">مشاهد</span>`
-              : (inZone
-                  ? `<span class="pill pill-green" style="font-size:10px;"><span class="live-dot green"></span>جوه الزون</span>`
-                  : `<span class="pill pill-amber mono" style="font-size:10px;">بعيد ${pDist !== null ? pDist + "m" : "?"}</span>`);
-            return `
-              <div class="player-row ${p.isSpectator ? "spec-row" : (inZone ? "ready-row" : "")}">
-                <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-                  ${avatarBadge(p.name)}
-                  <div style="min-width:0;">
-                    <div style="font-size:13.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.name)}</div>
-                    <div style="font-size:10.5px;color:var(--muted);font-weight:700;">
-                      ${p.isSpectator ? "وضع المشاهد" : (p.isHost ? "قائد الغرفة" : (p.isBot ? "بوت" : "لاعب"))}
-                    </div>
-                  </div>
-                </div>
-                <div style="display:flex;align-items:center;gap:6px;">
-                  ${zoneBadge}
-                  ${isHost && !p.isHost ? `<button class="btn btn-outline btn-xs" onclick="onKickLobbyPlayer('${p.id}')">×</button>` : ""}
-                </div>
-              </div>
-            `;
-          }).join("")}
+        <div id="lobby-players-list" style="display:flex;flex-direction:column;gap:7px;">
+          ${buildLobbyPlayersHtml(l, isHost)}
         </div>
 
         <button class="btn btn-crimson-outline" style="width:100%;" onclick="onOpenModal('howto_sheet')">
@@ -1015,13 +1108,97 @@ window.Kameen = window.Kameen || {};
     `;
   }
 
+  function buildLobbyPlayersHtml(l, isHost) {
+    return l.players.map((p) => {
+      const pDist = p.coords ? Math.round(K.Geo.distanceMeters(p.coords, l.center)) : null;
+      const inZone = p.isBot || (pDist !== null && pDist <= l.radius + 10);
+      const zoneBadge = p.isSpectator
+        ? `<span class="pill">مشاهد</span>`
+        : (inZone
+            ? `<span class="pill pill-green" style="font-size:10px;"><span class="live-dot green"></span>جوه الزون</span>`
+            : `<span class="pill pill-amber mono" style="font-size:10px;">بعيد ${pDist !== null ? pDist + "m" : "?"}</span>`);
+      return `
+        <div class="player-row ${p.isSpectator ? "spec-row" : (inZone ? "ready-row" : "")}">
+          <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+            ${avatarBadge(p.name)}
+            <div style="min-width:0;">
+              <div style="font-size:13.5px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${esc(p.name)}</div>
+              <div style="font-size:10.5px;color:var(--muted);font-weight:700;">
+                ${p.isSpectator ? "وضع المشاهد" : (p.isHost ? "قائد الغرفة" : (p.isBot ? "بوت" : "لاعب"))}
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            ${zoneBadge}
+            ${isHost && !p.isHost ? `<button class="btn btn-outline btn-xs" onclick="onKickLobbyPlayer('${p.id}')">×</button>` : ""}
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function updateLobbyDynamic() {
+    const st = K.state;
+    if (st.route !== "lobby" || !st.lobby) return;
+    const listEl = document.getElementById("lobby-players-list");
+    if (!listEl) return;
+    const isHost = st.lobby.hostId === st.user.id;
+    setHtmlIfChanged(listEl, buildLobbyPlayersHtml(st.lobby, isHost));
+  }
+
+  function buildLiveChatHtml(vis) {
+    const list = vis.liveChat || [];
+    if (!list.length) {
+      return `
+        <div style="margin:auto;text-align:center;color:var(--muted);font-size:12px;font-weight:700;padding:24px 12px;line-height:1.7;">
+          الشات العام مفتوح لكل اللاعبين الأحياء في الجيم.<br/>
+          تقدروا تتكلموا وتنسّقوا أو تخدعوا بعض هنا طول الجيم!
+        </div>
+      `;
+    }
+    return list.map((m) => {
+      const isMine = m.senderId === vis.self.id;
+      const ago = Math.max(0, Math.round((vis.nowMs - (m.createdAtMs || vis.nowMs)) / 1000));
+      const timeLbl = ago < 5 ? "الآن" : (ago < 60 ? `${ago}ث` : `${Math.floor(ago / 60)}د`);
+      const nameColor = isMine ? "#7DD3FC" : K.getAvatarColor(m.senderName);
+      return `
+        <div class="chat-bubble ${isMine ? "mine" : ""}">
+          <div class="chat-bubble-head">
+            <span style="color:${nameColor};">${esc(isMine ? "أنت" : m.senderName)}</span>
+            <span class="mono" style="color:var(--dim);font-size:9.5px;">${timeLbl}</span>
+          </div>
+          <div class="chat-bubble-body">${esc(m.text)}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function updateLiveChatDynamic() {
+    const st = K.state;
+    if (!st.engine || st.modal !== "live_chat") return;
+    const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+    const list = vis.liveChat || [];
+    st.lastReadLiveChatCount = list.length;
+    const feed = document.getElementById("live-chat-feed");
+    if (!feed) return;
+    const sig = list.length ? `${list.length}|${list[list.length - 1].id}` : "0";
+    if (feed.dataset.sig !== sig) {
+      feed.dataset.sig = sig;
+      feed.innerHTML = buildLiveChatHtml(vis);
+      feed.scrollTop = feed.scrollHeight;
+    }
+  }
+
   function updateMeetingDynamic() {
     if (!K.state.engine) return;
     const vis = K.state.engine.getVisibleStateForPlayer(K.state.user.id);
     const m = vis.activeMeeting;
     if (!m) return;
     const tEl = document.getElementById("meeting-timer-badge");
-    if (tEl) tEl.textContent = Math.max(0, Math.ceil((m.endsAtMs - vis.nowMs) / 1000)) + "s";
+    if (tEl) {
+      const nextT = Math.max(0, Math.ceil((m.endsAtMs - vis.nowMs) / 1000)) + "s";
+      if (tEl.textContent !== nextT) tEl.textContent = nextT;
+    }
     const cEl = document.getElementById("meeting-chat-feed");
     if (cEl && cEl.dataset.len !== String(m.chat.length)) {
       cEl.dataset.len = String(m.chat.length);
@@ -1029,7 +1206,13 @@ window.Kameen = window.Kameen || {};
       cEl.scrollTop = cEl.scrollHeight;
     }
     const vEl = document.getElementById("meeting-votes-section");
-    if (vEl) vEl.innerHTML = buildMeetingVotesHtml(vis);
+    if (vEl) {
+      const vSig = JSON.stringify(m.votes) + "|" + vis.players.filter((p) => p.alive).length + "|" + (vis.self.alive ? 1 : 0);
+      if (vEl.dataset.sig !== vSig) {
+        vEl.dataset.sig = vSig;
+        vEl.innerHTML = buildMeetingVotesHtml(vis);
+      }
+    }
   }
 
   function buildPostChatHtml(list) {
@@ -1691,6 +1874,46 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
+    // 13. In-Game Global Live Chat (All Living Players Including Imposter/Spy!)
+    if (st.modal === "live_chat" && st.engine) {
+      const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+      const list = vis.liveChat || [];
+      st.lastReadLiveChatCount = list.length;
+      const canSend = Boolean(vis.self.alive && !vis.self.isSpectator);
+      const livingCount = vis.players.filter((p) => p.alive && !p.isSpectator).length;
+      const quickLines = K.LIVE_GAME_QUICK_CHAT || K.QUICK_CHAT_LINES;
+      const body = `
+        <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--muted);font-weight:800;">
+          <span>الكل بيتكلم هنا (بما فيهم الغدّار بدون كشف الأدوار)</span>
+          <span class="pill pill-green mono" style="padding:2px 7px;font-size:10px;"><span class="live-dot green"></span>${livingCount} أحياء</span>
+        </div>
+        <div id="live-chat-feed" class="live-chat-feed" data-sig="${list.length ? `${list.length}|${list[list.length - 1].id}` : "0"}">
+          ${buildLiveChatHtml(vis)}
+        </div>
+        ${canSend ? `
+          <div class="chat-quick-strip">
+            ${quickLines.map((q) =>
+              `<button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickLiveChat('${esc(q)}')">${esc(q)}</button>`
+            ).join("")}
+          </div>
+          <div class="chat-composer">
+            <input id="live-chat-input" class="input" style="padding:10px 12px;font-size:13px;" type="text"
+              placeholder="اكتب رسالة لكل اللاعبين..."
+              onkeydown="if(event.key==='Enter')onSendLiveChat()" />
+            <button class="btn btn-primary btn-sm" style="padding:10px 16px;flex-shrink:0;" onclick="onSendLiveChat()">إرسال</button>
+          </div>
+        ` : `
+          <div class="card" style="padding:9px;text-align:center;font-size:11.5px;color:var(--muted);font-weight:800;">
+            وضع القراءة فقط — الأحياء فقط يقدروا يكتبوا في الشات عشان مفيش حرق!
+          </div>
+        `}
+      `;
+      mr.innerHTML = bottomSheetHtml("شات الجيم المباشر", body, "var(--emerald)");
+      const feed = document.getElementById("live-chat-feed");
+      if (feed) feed.scrollTop = feed.scrollHeight;
+      return;
+    }
+
     mr.innerHTML = "";
   }
 
@@ -1700,6 +1923,8 @@ window.Kameen = window.Kameen || {};
     renderPage,
     renderModal,
     updateMissionsDynamic,
+    updateLobbyDynamic,
+    updateLiveChatDynamic,
     updateMeetingDynamic,
     updateResultChatDOM,
     updateCameraModalStatus,

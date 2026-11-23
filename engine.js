@@ -459,6 +459,8 @@ window.Kameen = window.Kameen || {};
         lastKillMeta: null,
         recentMissionMeta: null,
         lastPublicAngle: null,
+        liveChat: [],
+        lastBotLiveChatAtMs: 0,
         postChat: [],
         events: [
           {
@@ -749,6 +751,7 @@ window.Kameen = window.Kameen || {};
         activeBrokerOffer: JSON.parse(JSON.stringify(this.state.activeBrokerOffer)),
         aiReports: JSON.parse(JSON.stringify(this.state.aiReports)),
         privateIntel: JSON.parse(JSON.stringify((this.state.privateIntel && this.state.privateIntel[self.id]) || [])),
+        liveChat: JSON.parse(JSON.stringify(this.state.liveChat || [])),
         postChat: JSON.parse(JSON.stringify(this.state.postChat || [])),
         events: JSON.parse(JSON.stringify(this.state.events)),
         awards: isGameOver ? this.computeAwards() : [],
@@ -1181,6 +1184,28 @@ window.Kameen = window.Kameen || {};
         senderId, senderName: s.name, text: trimmed.slice(0, 220), createdAtMs: nowMs,
       });
       return { ok: true };
+    }
+
+    sendLiveChat(senderId, text, nowMs = this.state.nowMs) {
+      if (this.state.phase === "GAME_OVER") return { ok: false, error: "الجيم انتهى" };
+      const s = this.state.players[senderId];
+      if (!s) return { ok: false, error: "اللاعب غير موجود" };
+      if (!s.alive || s.isSpectator) {
+        return { ok: false, error: "الأحياء فقط يقدروا يكتبوا في الشات عشان مفيش حرق!" };
+      }
+      const trimmed = String(text || "").trim();
+      if (!trimmed) return { ok: false, error: "اكتب رسالتك الأول" };
+      if (!Array.isArray(this.state.liveChat)) this.state.liveChat = [];
+      const msg = {
+        id: this.nextEventId("lchat"),
+        senderId: s.id,
+        senderName: s.name,
+        text: trimmed.slice(0, 220),
+        createdAtMs: nowMs,
+      };
+      this.state.liveChat.push(msg);
+      if (this.state.liveChat.length > 80) this.state.liveChat.shift();
+      return { ok: true, data: msg };
     }
 
     sendPostChat(senderId, text, nowMs = this.state.nowMs) {
@@ -1736,6 +1761,14 @@ window.Kameen = window.Kameen || {};
     }
 
     const bots = Object.values(snap.players).filter((p) => p.alive && p.isBot);
+    if (snap.phase === "ACTIVE" && bots.length && nowMs - (snap.lastBotLiveChatAtMs || 0) >= 48000 && Math.random() < 0.08) {
+      const speaker = bots[Math.floor(Math.random() * bots.length)];
+      const lines = K.BOT_LIVE_CHAT_LINES || K.BOT_SLANG_LINES;
+      if (speaker && lines && lines.length) {
+        engine.state.lastBotLiveChatAtMs = nowMs;
+        engine.sendLiveChat(speaker.id, lines[Math.floor(Math.random() * lines.length)], nowMs);
+      }
+    }
     for (const bot of bots) {
       if (!isInsideZone(bot.coords, snap.zone.center, snap.zone.currentRadiusMeters * 0.8)) {
         engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, snap.zone.center, stepMeters * 1.4), nowMs);

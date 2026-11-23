@@ -42,6 +42,9 @@ window.Kameen = window.Kameen || {};
   let triedBackupVector = false;
   let lastRouteRendered = null;
   let lastBearingEaseAt = 0;
+  let lastPanEaseAt = 0;
+  let isUserInteractingMap = false;
+  let unwrappedConeDeg = null;
   let lastZoneSig = "";
   let lastRouteSig = "";
   let lastAccSig = "";
@@ -376,12 +379,16 @@ window.Kameen = window.Kameen || {};
       map.on("rotate", () => updateHeadingVisualOnly());
 
       map.on("dragstart", (e) => {
+        isUserInteractingMap = true;
         if (e && e.originalEvent && st.mapFollowMe) {
           st.mapFollowMe = false;
           const fab = document.getElementById("follow-gps-fab");
           if (fab) fab.classList.remove("active-fab");
         }
       });
+      map.on("dragend", () => { isUserInteractingMap = false; });
+      map.on("zoomstart", () => { isUserInteractingMap = true; });
+      map.on("zoomend", () => { isUserInteractingMap = false; });
 
       map.on("rotatestart", (e) => {
         if (e && e.originalEvent && st.mapRotateWithMe) {
@@ -464,18 +471,30 @@ window.Kameen = window.Kameen || {};
     if (typeof deg !== "number" || !Number.isFinite(deg)) return;
 
     const mapBearing = st.glMap ? st.glMap.getBearing() : 0;
-    const relDeg = ((deg - mapBearing) % 360 + 360) % 360;
+    const targetRel = ((deg - mapBearing) % 360 + 360) % 360;
+
+    // Shortest-path unwrapped angle so crossing North (359° -> 1°) NEVER whips backward!
+    if (unwrappedConeDeg === null) {
+      unwrappedConeDeg = targetRel;
+    } else {
+      const curMod = ((unwrappedConeDeg % 360) + 360) % 360;
+      const delta = ((targetRel - curMod + 540) % 360) - 180;
+      if (Math.abs(delta) >= 2.5) unwrappedConeDeg += delta;
+    }
 
     const now = Date.now();
-    if (st.glMap && st.mapRotateWithMe && now - lastBearingEaseAt >= 180) {
-      lastBearingEaseAt = now;
-      st.glMap.easeTo({ bearing: deg, duration: 180, easing: (t) => t });
+    if (st.glMap && st.mapRotateWithMe && !isUserInteractingMap && now - lastBearingEaseAt >= 360 && now - lastPanEaseAt >= 360) {
+      const bDiff = Math.abs(((deg - mapBearing + 540) % 360) - 180);
+      if (bDiff >= 4.5) {
+        lastBearingEaseAt = now;
+        st.glMap.easeTo({ bearing: deg, duration: 280, easing: (t) => t });
+      }
     }
 
     const cone = document.getElementById("live-heading-cone");
     if (cone) {
       cone.style.opacity = "1";
-      cone.style.transform = `rotate(${Math.round(relDeg)}deg)`;
+      cone.style.transform = `rotate(${Math.round(unwrappedConeDeg)}deg)`;
     }
     const radarCone = document.getElementById("radar-heading-cone");
     if (radarCone) {
@@ -562,10 +581,17 @@ window.Kameen = window.Kameen || {};
 
     updateSelfMarkerOnMap(coords, colorHex);
 
-    if (shouldPanIfFollowing && st.mapFollowMe && (st.route === "game" || st.route === "simulation")) {
+    const nowMs = Date.now();
+    if (shouldPanIfFollowing && st.mapFollowMe && !isUserInteractingMap && (st.route === "game" || st.route === "simulation") && nowMs - lastPanEaseAt >= 480) {
       const c = st.glMap.getCenter();
-      if (K.Geo.distanceMeters({ lat: c.lat, lng: c.lng }, coords) >= 2.5) {
-        st.glMap.easeTo({ center: [coords.lng, coords.lat], duration: 280 });
+      if (K.Geo.distanceMeters({ lat: c.lat, lng: c.lng }, coords) >= 4.0) {
+        lastPanEaseAt = nowMs;
+        const easeOpts = { center: [coords.lng, coords.lat], duration: 360 };
+        if (st.mapRotateWithMe && typeof st.gps.heading === "number" && Number.isFinite(st.gps.heading)) {
+          easeOpts.bearing = st.gps.heading;
+          lastBearingEaseAt = nowMs;
+        }
+        st.glMap.easeTo(easeOpts);
       }
     }
   }

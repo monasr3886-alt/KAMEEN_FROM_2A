@@ -96,6 +96,9 @@ window.Kameen = window.Kameen || {};
     intelTab: "public",
     meetingIntelTab: "public",
     privateScanOpen: false,
+    lastReadLiveChatCount: 0,
+    lastLiveChatSeenId: null,
+    lastChatBanner: null,
   };
 
   function isMatchHost() {
@@ -168,7 +171,7 @@ window.Kameen = window.Kameen || {};
         me.hasRealFix = true;
         if (st.lobby.hostId === st.user.id) {
           K.Network.broadcastLobbyState();
-          K.UI.renderPage();
+          K.UI.updateLobbyDynamic();
         } else {
           K.Network.sendRaw("LOBBY_LOC", { playerId: st.user.id, coords: nextCoords, hasRealFix: true });
         }
@@ -432,6 +435,9 @@ window.Kameen = window.Kameen || {};
       case "CHAT":
         res = st.engine.sendMeetingChat(playerId, data.text, t);
         break;
+      case "LIVE_CHAT":
+        res = st.engine.sendLiveChat(playerId, data.text, t);
+        break;
       case "POST_CHAT":
         res = st.engine.sendPostChat(playerId, data.text, t);
         break;
@@ -541,7 +547,8 @@ window.Kameen = window.Kameen || {};
     if (st.route === "game" || st.route === "simulation") {
       K.Map.updateLayers();
       K.UI.updateHudOnly();
-      if (st.modal === "intel_log") K.UI.renderModal();
+      if (st.modal === "live_chat") K.UI.updateLiveChatDynamic();
+      else if (st.modal === "intel_log" && type !== "UPDATE_LOC") K.UI.renderModal();
     } else if (st.route === "meeting") {
       K.UI.updateMeetingDynamic();
     } else if (st.route === "result") {
@@ -588,6 +595,18 @@ window.Kameen = window.Kameen || {};
       st.lastAirdropIdNotified = snap.activeAirdrop.id;
       K.SFX.play("airdrop");
       K.showToast(`إمداد نزل ${snap.activeAirdrop.place}`);
+    }
+
+    if (snap.liveChat && snap.liveChat.length > 0) {
+      const lastMsg = snap.liveChat[snap.liveChat.length - 1];
+      if (lastMsg.id !== st.lastLiveChatSeenId) {
+        st.lastLiveChatSeenId = lastMsg.id;
+        if (lastMsg.senderId !== st.user.id && st.modal !== "live_chat") {
+          st.lastChatBanner = { sender: lastMsg.senderName, text: lastMsg.text, atMs: Date.now() };
+          K.SFX.play("click");
+        }
+        if (st.modal === "live_chat") K.UI.updateLiveChatDynamic();
+      }
     }
 
     if (snap.aiReports && snap.aiReports.length > 0) {
@@ -641,7 +660,7 @@ window.Kameen = window.Kameen || {};
     if (st.route === "game" || st.route === "simulation") {
       K.Map.updateLayers();
       K.UI.updateHudOnly();
-      if (st.modal === "intel_log") K.UI.renderModal();
+      if (st.modal === "live_chat") K.UI.updateLiveChatDynamic();
     } else if (st.route === "meeting") {
       K.UI.updateMeetingDynamic();
     } else if (st.route === "result") {
@@ -678,6 +697,7 @@ window.Kameen = window.Kameen || {};
           K.Map.updateLayers();
           K.UI.updateHudOnly();
           if (st.modal === "missions_sheet") K.UI.updateMissionsDynamic();
+          if (st.modal === "live_chat") K.UI.updateLiveChatDynamic();
         }
       } else if (st.route === "meeting") {
         K.UI.updateMeetingDynamic();
@@ -943,7 +963,7 @@ window.Kameen = window.Kameen || {};
     st.simTimeMs = t0;
     st.lobby.started = true;
     st.roleRevealed = false; st.roleFlipped = false; st.eliminatedAck = false;
-    st.lastIntel = null; st.lastBrokerIdNotified = null; st.lastAirdropIdNotified = null; st.lastPingSweepNotified = 0;
+    st.lastIntel = null; st.lastReadLiveChatCount = 0; st.lastLiveChatSeenId = null; st.lastChatBanner = null; st.lastBrokerIdNotified = null; st.lastAirdropIdNotified = null; st.lastPingSweepNotified = 0;
     K.Network.broadcastLobbyState();
     K.Network.broadcastMatchSnapshot(true);
     startEngineLoop();
@@ -979,7 +999,7 @@ window.Kameen = window.Kameen || {};
     }, bots, t0);
     void K.Map.fetchOverpassPOIs(center, 220, true);
     st.roleRevealed = false; st.roleFlipped = false; st.eliminatedAck = false;
-    st.lastIntel = null; st.lastBrokerIdNotified = null; st.lastAirdropIdNotified = null; st.lastPingSweepNotified = 0;
+    st.lastIntel = null; st.lastReadLiveChatCount = 0; st.lastLiveChatSeenId = null; st.lastChatBanner = null; st.lastBrokerIdNotified = null; st.lastAirdropIdNotified = null; st.lastPingSweepNotified = 0;
     startEngineLoop();
     navigate("simulation");
   };
@@ -1057,6 +1077,33 @@ window.Kameen = window.Kameen || {};
     K.state.modal = "camera";
     K.UI.renderModal();
     setTimeout(() => void startInAppCamera(missionId), 40);
+  };
+
+  window.onOpenLiveChat = () => {
+    stopInAppCamera();
+    K.SFX.play("click");
+    K.state.lastChatBanner = null;
+    if (K.state.engine) {
+      const vis = K.state.engine.getVisibleStateForPlayer(K.state.user.id);
+      K.state.lastReadLiveChatCount = (vis.liveChat || []).length;
+    }
+    K.state.modal = "live_chat";
+    K.UI.renderModal();
+    K.UI.updateHudOnly();
+  };
+
+  window.onSendLiveChat = () => {
+    const inp = document.getElementById("live-chat-input");
+    if (!inp) return;
+    const txt = inp.value.trim();
+    if (!txt) return;
+    inp.value = "";
+    dispatchAction("LIVE_CHAT", { text: txt });
+  };
+
+  window.onQuickLiveChat = (txt) => {
+    K.SFX.play("click");
+    dispatchAction("LIVE_CHAT", { text: txt });
   };
 
   window.onSendMeetingChat = () => {

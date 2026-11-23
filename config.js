@@ -4,7 +4,7 @@ window.Kameen = window.Kameen || {};
 
 (function (K) {
   K.CONFIG = {
-    VERSION: "v5.1",
+    VERSION: "v5.2",
     LOGO_PATH: "./logo.jpg",
     DEFAULT_CENTER: { lat: 29.9753, lng: 30.9455, accuracyMeters: 6 },
     // الصق مفتاح Groq هنا لو هترفع مباشر على Vercel أو في Repo خاص (أو احفظه مرة واحدة من قائمة الإعدادات ☰)
@@ -86,6 +86,24 @@ window.Kameen = window.Kameen || {};
     "اقفشوه هو الغدّار!"
   ];
 
+  K.LIVE_GAME_QUICK_CHAT = [
+    "أنا بخلص مهمتي",
+    "فينكوا يا رجالة؟",
+    "في حد ماشي ورايا!",
+    "اقروا المحلل العام!",
+    "أنا بريء والله",
+    "خلي بالكم من الزون"
+  ];
+
+  K.BOT_LIVE_CHAT_LINES = [
+    "يا جدعان حد لمح حد بيجري من شوية؟",
+    "أنا رايح أخلص مهمتي، محدش يقرب مني!",
+    "المحلل العام كلامه مقلق.. افتحوا عينيكم!",
+    "هو كله مستخبي فين؟ الشارع فاضي!",
+    "اللي ساكت في الشات ده هو الغدّار على ضمانتي",
+    "الزون قربت تصغر يا رجالة، ادخلوا جوه!"
+  ];
+
   K.SFX = {
     ctx: null,
     muted: localStorage.getItem("kameen_muted") === "1",
@@ -163,10 +181,8 @@ window.Kameen = window.Kameen || {};
   };
 
   K.triggerShake = function () {
-    document.body.classList.remove("screen-shake");
-    void document.body.offsetWidth;
-    document.body.classList.add("screen-shake");
-    setTimeout(() => document.body.classList.remove("screen-shake"), 360);
+    // Stable UI mode: zero body transform shake (haptic vibration handles tactile feedback cleanly)
+    try { if (navigator.vibrate) navigator.vibrate([45, 35, 45]); } catch {}
   };
 
   K.setDangerVignette = function (active) {
