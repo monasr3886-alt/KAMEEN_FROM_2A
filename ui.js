@@ -986,7 +986,7 @@ window.Kameen = window.Kameen || {};
         <div class="eyebrow" style="color:var(--cyan);margin-bottom:4px;">دور المحقق</div>
         <div style="font-size:12.5px;font-weight:700;line-height:1.8;color:var(--muted);">
           • للفوز: لازم <b>كل المحققين الأحياء</b> يخلصوا كل مهامهم الواقعية 100% (بفحص الذكاء الاصطناعي) أو تكشفوا وتطردوا الغدّار قبل ما الوقت يخلص.<br/>
-          • استخدم درع الحماية، مسح المعالم، والاتهام المباشر عند التأكد.<br/>
+          • استخدم درع الحماية، المحلل الخاص، والاتهام بالأغلبية لطرد المشتبه به.<br/>
           • نبض القلب بيحذرك تلقائياً لما الغدّار يقرّب منك بدون كشف اسمه.
         </div>
       </div>
@@ -1510,7 +1510,7 @@ window.Kameen = window.Kameen || {};
         KILLED_BY_IMPOSTER: "تم إقصاؤك بواسطة الغدّار.",
         OUTSIDE_ZONE: "تم إقصاؤك لبقائك خارج الزون.",
         EJECTED_IN_MEETING: "تم التصويت على طردك في الاجتماع.",
-        CAUGHT_BY_SPOKEN_NAME: "تم كشفك بالاتهام المباشر.",
+        CAUGHT_BY_SPOKEN_NAME: "تم طردك باتهام أغلبية اللاعبين في الجيم.",
       };
       mr.innerHTML = `
         <div class="center-modal-backdrop">
@@ -1595,14 +1595,6 @@ window.Kameen = window.Kameen || {};
           <div><div style="font-weight:900;font-size:13px;color:var(--cyan);">درع الحماية (15ث)</div><div style="font-size:11px;color:var(--muted);">يمنع الغدّار من إقصائك مؤقتاً</div></div>
           <span class="pill pill-cyan mono">${C.PROTECTION_COST}ن</span>
         </button>
-        <div class="card" style="padding:10px;">
-          <div style="font-size:11.5px;font-weight:800;color:var(--cyan);margin-bottom:6px;">مسح منطقة محددة (${C.LOCATION_QUESTION_COST}ن):</div>
-          <div class="grid-2" style="gap:5px;">
-            ${(vis.landmarks || []).map((lm) =>
-              `<button class="btn btn-outline btn-xs" style="justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="onScanPlace('${esc(lm.id)}')">${esc(lm.name)}</button>`
-            ).join("")}
-          </div>
-        </div>
         <button class="power-tile" style="border-color:var(--amber-border);" onclick="onUseAbility('BOLD_HINT')">
           <div><div style="font-weight:900;font-size:13px;color:var(--amber);">تلميح مباشر عن الغدّار</div><div style="font-size:11px;color:var(--muted);">تحديد أقرب شارع ومسافة تقريبية للغدّار</div></div>
           <span class="pill pill-amber mono">${C.BOLD_HINT_COST}ن</span>
@@ -1630,24 +1622,41 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // 9. Direct Accusation
+    // 9. Majority Accusation (Ejects player ONLY when majority of living players accuse them!)
     if (st.modal === "spoken" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+      const living = vis.players.filter((p) => p.alive && !p.isSpectator);
+      const needed = Math.floor(living.length / 2) + 1;
+      const accMap = vis.accusations || {};
+      const myAccusedId = accMap[vis.self.id] || null;
+      const counts = {};
+      for (const [k, v] of Object.entries(accMap)) {
+        if (living.some((x) => x.id === k) && living.some((x) => x.id === v)) {
+          counts[v] = (counts[v] || 0) + 1;
+        }
+      }
       const body = `
         <div class="intel-item" style="border-right-color:var(--amber);">
-          لو اتهامك صح الغدّار بيخرج فوراً؛ ولو غلط بتخسر ${C.SPOKEN_PENALTY_POINTS}ن وينكشف مكانك 10 ثواني.
+          محتاج أغلبية الأحياء (<b class="mono">${needed}</b> من <b class="mono">${living.length}</b>) يتهموا نفس الشخص عشان يخرج من الجيم. اضغط تاني لسحب اتهامك.
         </div>
-        ${vis.players.filter((p) => p.alive && p.id !== vis.self.id).map((p) => `
-          <button class="power-tile" onclick="onSpokenName('${p.id}')">
-            <div style="display:flex;align-items:center;gap:10px;">
-              ${avatarBadge(p.name)}
-              <span style="font-weight:800;font-size:13.5px;">${esc(p.name)}</span>
-            </div>
-            <span class="pill pill-red">اتهام</span>
-          </button>
-        `).join("")}
+        ${living.filter((p) => p.id !== vis.self.id).map((p) => {
+          const c = counts[p.id] || 0;
+          const isMine = myAccusedId === p.id;
+          return `
+            <button class="power-tile" style="${isMine ? "border-color:var(--crimson);background:var(--crimson-tint);" : ""}" onclick="onSpokenName('${p.id}')">
+              <div style="display:flex;align-items:center;gap:10px;">
+                ${avatarBadge(p.name)}
+                <div>
+                  <div style="font-weight:800;font-size:13.5px;">${esc(p.name)}</div>
+                  <div style="font-size:10.5px;color:var(--muted);">${isMine ? "أنت متهمه حالياً" : "اضغط لتسجيل اتهام"}</div>
+                </div>
+              </div>
+              <span class="pill ${c > 0 ? "pill-red" : ""} mono">${c}/${needed}</span>
+            </button>
+          `;
+        }).join("")}
       `;
-      mr.innerHTML = bottomSheetHtml("اتهام مباشر", body, "var(--cyan)");
+      mr.innerHTML = bottomSheetHtml("اتهام بالأغلبية", body, "var(--cyan)");
       return;
     }
 
@@ -1720,21 +1729,10 @@ window.Kameen = window.Kameen || {};
                     <span class="eyebrow" style="color:var(--amber);">اطلب تحليل خاص الآن (يُحفظ هنا للأبد)</span>
                     <span class="pill pill-cyan mono">${vis.self.points}ن</span>
                   </div>
-                  <div class="grid-3">
-                    <button class="btn btn-cyan btn-xs" onclick="onTogglePrivateScanBox()">مسح مكان (${C.LOCATION_QUESTION_COST}ن)</button>
+                  <div class="grid-2">
                     <button class="btn btn-warning btn-xs" onclick="onBuyPrivateIntel('PRIVATE_PROFILE')">تحليل سلوكي (${C.PRIVATE_PROFILE_COST || 30}ن)</button>
                     <button class="btn btn-crimson-outline btn-xs" onclick="onBuyPrivateIntel('BOLD_HINT')">تلميح غدّار (${C.BOLD_HINT_COST}ن)</button>
                   </div>
-                  ${st.privateScanOpen ? `
-                    <div style="padding-top:6px;border-top:1px solid var(--border);">
-                      <div style="font-size:10.5px;color:var(--cyan);font-weight:800;margin-bottom:5px;">اختار المنطقة اللي عايز تمسحها (${C.LOCATION_QUESTION_COST}ن):</div>
-                      <div class="grid-2" style="gap:5px;">
-                        ${(vis.landmarks || []).map((lm) =>
-                          `<button class="btn btn-outline btn-xs" style="justify-content:flex-start;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" onclick="onBuyPrivateScan('${esc(lm.id)}')">${esc(lm.name)}</button>`
-                        ).join("")}
-                      </div>
-                    </div>
-                  ` : ""}
                 </div>
               `);
 

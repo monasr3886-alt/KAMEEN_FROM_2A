@@ -80,7 +80,7 @@ window.Kameen = window.Kameen || {};
     return offsetCoordinates(center, Math.cos(theta) * dist, Math.sin(theta) * dist);
   }
 
-  function generateFallbackPOIs(center, radiusMeters, rng = Math.random) {
+  function generateFallbackPOIs(center, radiusMeters, rng = Math.random, count = 20) {
     const templates = [
       { name: "ساحة الحي", category: "square" },
       { name: "الجنينة العمومية", category: "park" },
@@ -91,13 +91,37 @@ window.Kameen = window.Kameen || {};
       { name: "المخبز", category: "shop" },
       { name: "المسجد", category: "mosque" },
       { name: "سوق الحي", category: "shop" },
+      { name: "ميدان المنطقة", category: "square" },
+      { name: "الشارع الرئيسي", category: "street" },
+      { name: "الناصية الشرقية", category: "street" },
+      { name: "الناصية الغربية", category: "street" },
+      { name: "الموقف القريب", category: "street" },
+      { name: "السوبر ماركت", category: "shop" },
+      { name: "المدرسة", category: "landmark" },
+      { name: "المكتبة", category: "shop" },
+      { name: "النادي الاجتماعي", category: "park" },
+      { name: "ممر المشاة", category: "pedestrian" },
+      { name: "تقاطع الحي", category: "street" },
     ];
-    return templates.map((tpl, i) => {
-      const angle = (i / templates.length) * Math.PI * 2 + rng() * 0.25;
-      const dist = radiusMeters * (0.28 + rng() * 0.44);
-      const c = offsetCoordinates(center, Math.cos(angle) * dist, Math.sin(angle) * dist);
-      return { id: "poi-" + (i + 1), name: tpl.name, category: tpl.category, lat: c.lat, lng: c.lng };
-    });
+    // Distribute 20 POIs evenly across 3 rings (5 inner, 7 mid, 8 outer) so inner zone ALWAYS has active places!
+    const rings = [
+      { frac: 0.22, n: 5 },
+      { frac: 0.52, n: 7 },
+      { frac: 0.80, n: 8 },
+    ];
+    const out = [];
+    let idx = 0;
+    for (const r of rings) {
+      for (let j = 0; j < r.n && out.length < count; j++) {
+        const tpl = templates[idx % templates.length];
+        const angle = (j / r.n) * Math.PI * 2 + (r.frac * 1.3) + (rng() - 0.5) * 0.18;
+        const dist = radiusMeters * (r.frac + (rng() - 0.5) * 0.08);
+        const c = offsetCoordinates(center, Math.cos(angle) * dist, Math.sin(angle) * dist);
+        out.push({ id: "poi-" + (idx + 1), name: tpl.name, category: tpl.category, lat: c.lat, lng: c.lng });
+        idx += 1;
+      }
+    }
+    return out;
   }
 
   const INVESTIGATOR_MISSIONS = [
@@ -459,6 +483,7 @@ window.Kameen = window.Kameen || {};
         lastKillMeta: null,
         recentMissionMeta: null,
         lastPublicAngle: null,
+        accusations: {},
         liveChat: [],
         lastBotLiveChatAtMs: 0,
         postChat: [],
@@ -751,6 +776,7 @@ window.Kameen = window.Kameen || {};
         activeBrokerOffer: JSON.parse(JSON.stringify(this.state.activeBrokerOffer)),
         aiReports: JSON.parse(JSON.stringify(this.state.aiReports)),
         privateIntel: JSON.parse(JSON.stringify((this.state.privateIntel && this.state.privateIntel[self.id]) || [])),
+        accusations: JSON.parse(JSON.stringify(this.state.accusations || {})),
         liveChat: JSON.parse(JSON.stringify(this.state.liveChat || [])),
         postChat: JSON.parse(JSON.stringify(this.state.postChat || [])),
         events: JSON.parse(JSON.stringify(this.state.events)),
@@ -961,13 +987,72 @@ window.Kameen = window.Kameen || {};
       this.pushEvent("REVEAL_STARTED", `رصد مباشر شغال لمدة ${Math.round(durMs / 1000)} ثانية`, nowMs);
     }
 
+    relocateMissionsInsideZone(nowMs = this.state.nowMs) {
+      const zCenter = this.state.zone.center;
+      const zRad = this.state.zone.currentRadiusMeters;
+      const safePois = (this.state.pois || []).filter(
+        (p) => distanceMeters(zCenter, { lat: p.lat, lng: p.lng }) <= zRad * 0.90
+      );
+      const allTpls = [...INVESTIGATOR_MISSIONS, ...IMPOSTER_COVER_MISSIONS];
+      let movedCount = 0;
+
+      for (const [pid, list] of Object.entries(this.state.missions || {})) {
+        const player = this.state.players[pid];
+        if (!player || !player.alive) continue;
+        const usedIds = new Set(
+          list.filter((m) => m.status !== "completed" && m.poi && distanceMeters(zCenter, m.poi) <= zRad * 0.92)
+            .map((m) => m.poi.id)
+        );
+
+        for (const m of list) {
+          if (m.status === "completed") continue;
+          const distFromCenter = m.poi ? distanceMeters(zCenter, { lat: m.poi.lat, lng: m.poi.lng }) : Infinity;
+          if (distFromCenter <= zRad * 0.92) continue;
+
+          // Mission POI is now outside the shrinking zone — automatically redirect to a real POI still inside!
+          let nextPoi = null;
+          const availSafe = safePois.filter((p) => !usedIds.has(p.id));
+          if (availSafe.length > 0) {
+            nextPoi = availSafe[Math.floor(this.rng() * availSafe.length)];
+          } else if (safePois.length > 0) {
+            nextPoi = safePois[Math.floor(this.rng() * safePois.length)];
+          } else {
+            // Very small final zone: snap inside safe zone relative to nearest real landmark
+            const pt = randomPointInZone(zCenter, zRad, this.rng, 0.55);
+            const nearReal = getNearestPOI(pt, this.state.pois);
+            nextPoi = {
+              id: "safe-" + this.nextEventId("poi"),
+              name: nearReal ? `داخل الزون • ناحية ${nearReal.poi.name}` : "قلب الزون الآمن",
+              category: "safe",
+              lat: pt.lat,
+              lng: pt.lng,
+            };
+          }
+
+          usedIds.add(nextPoi.id);
+          m.poi = { ...nextPoi };
+          const tpl = allTpls.find((t) => t.type === m.type);
+          if (tpl) m.description = tpl.description(nextPoi.name);
+          const sec = calculateDynamicMissionSeconds(player.coords, nextPoi, tpl ? tpl.baseTimeSec : 110);
+          m.estimatedDurationSec = sec;
+          if (m.status === "in_progress") {
+            m.deadlineMs = nowMs + sec * 1000;
+          }
+          movedCount += 1;
+        }
+      }
+      return movedCount;
+    }
+
     shrinkZone(nowMs = this.state.nowMs) {
       this.state.zone.center = this.state.zone.nextCenter;
       this.state.zone.currentRadiusMeters = this.state.zone.nextRadiusMeters;
       this.state.zone.shrinkCount += 1;
       this.state.zone.nextCenter = this.computeNextZoneCenter(this.state.zone.center, this.state.zone.currentRadiusMeters);
       this.state.zone.nextRadiusMeters = Math.max(30, Math.round(this.state.zone.currentRadiusMeters * C.ZONE_SHRINK_FACTOR));
-      this.pushEvent("ZONE_SHRUNK", `⭕ الزون قفلت 25%! دلوقتي نص القطر ${this.state.zone.currentRadiusMeters}م — ادخل الدايرة بسرعة!`, nowMs);
+      const moved = this.relocateMissionsInsideZone(nowMs);
+      const extra = moved > 0 ? " • وتم تحويل المهام تلقائياً لأماكن جوه الزون الجديد!" : "";
+      this.pushEvent("ZONE_SHRUNK", `⭕ الزون قفلت 25%! دلوقتي نص القطر ${this.state.zone.currentRadiusMeters}م${extra}`, nowMs);
     }
 
     evaluateZoneBoundary(nowMs) {
@@ -1268,55 +1353,61 @@ window.Kameen = window.Kameen || {};
       this.checkWinConditions(nowMs);
     }
 
-    // INVESTIGATOR-ONLY HIGH-STAKES ACCUSATION
+    // MAJORITY ACCUSATION SYSTEM: Player is ejected ONLY when > 50% of living players accuse them!
     submitSpokenName(reporterId, accusedId, nowMs = this.state.nowMs) {
       if (this.state.phase !== "ACTIVE") return { ok: false, error: "شغالة أثناء اللعب بس" };
       const rep = this.state.players[reporterId];
       const acc = this.state.players[accusedId];
-      if (!rep || !rep.alive || rep.role !== "INVESTIGATOR") return { ok: false, error: "للمحققين الأحياء بس!" };
+      if (!rep || !rep.alive || rep.isSpectator) return { ok: false, error: "للأحياء في الجيم بس!" };
       if (!acc || !acc.alive || acc.id === rep.id) return { ok: false, error: "اختار لاعب تاني" };
-      if (rep.spokenNameCooldownUntilMs > nowMs) {
-        const rem = Math.ceil((rep.spokenNameCooldownUntilMs - nowMs) / 1000);
-        return { ok: false, error: `استنى ${rem} ثانية قبل ما تتهم حد تاني` };
+
+      if (!this.state.accusations || typeof this.state.accusations !== "object") {
+        this.state.accusations = {};
       }
-      rep.spokenNameCooldownUntilMs = nowMs + 60000;
-      if (acc.role === "IMPOSTER") {
+
+      // Clean stale accusations from or against dead players
+      for (const [k, v] of Object.entries(this.state.accusations)) {
+        const kp = this.state.players[k];
+        const vp = this.state.players[v];
+        if (!kp || !kp.alive || !vp || !vp.alive) delete this.state.accusations[k];
+      }
+
+      // Toggle off if clicking the same accused player again
+      if (this.state.accusations[reporterId] === accusedId) {
+        delete this.state.accusations[reporterId];
+        return { ok: true, data: { ejected: false, cancelled: true }, toast: `تم سحب اتهامك لـ ${acc.name}` };
+      }
+
+      this.state.accusations[reporterId] = accusedId;
+
+      const living = this.getLivingPlayers();
+      const needed = Math.floor(living.length / 2) + 1;
+      const count = Object.values(this.state.accusations).filter((id) => id === accusedId).length;
+
+      if (count >= needed) {
         acc.alive = false;
         acc.eliminationReason = "CAUGHT_BY_SPOKEN_NAME";
         acc.eliminatedAtMs = nowMs;
-        this.pushEvent("SPOKEN_NAME_CHECK", `🔥 قفشة معلمين! ${rep.name} قفش الغدّار ${acc.name} وطيّره!`, nowMs, reporterId, accusedId);
+        this.state.accusations = {};
+        const wasImp = acc.role === "IMPOSTER";
+        const msg = wasImp
+          ? `🔥 بأغلبية اللاعبين (${count}/${living.length}) تم طرد ${acc.name} — وفعلاً طلع الغدّار! 🎉`
+          : `😬 بأغلبية اللاعبين (${count}/${living.length}) تم طرد ${acc.name} — وللأسف طلع بريء!`;
+        this.pushEvent("SPOKEN_NAME_CHECK", msg, nowMs, reporterId, accusedId);
         this.checkWinConditions(nowMs);
-        return { ok: true, data: { caught: true, accusedName: acc.name }, toast: `🔥 الله عليك! ${acc.name} طلع الغدّار فعلاً وطار!` };
+        return {
+          ok: true,
+          data: { ejected: true, caught: wasImp, accusedName: acc.name },
+          toast: msg,
+        };
       }
-      // Real penalty for false accusation: -25 pts + 10s red location reveal!
-      rep.points = Math.max(0, rep.points - C.SPOKEN_PENALTY_POINTS);
-      rep.brokerRedBroadcastUntilMs = Math.max(rep.brokerRedBroadcastUntilMs, nowMs + 10000);
-      this.pushEvent("SPOKEN_NAME_CHECK", `😅 ${rep.name} اتهم ${acc.name} بالغلط — مكانه اتكشف 10 ثواني!`, nowMs, reporterId, accusedId);
+
+      this.pushEvent("SPOKEN_NAME_CHECK", `⚖️ ${rep.name} اتهم ${acc.name} (${count}/${needed} للأغلبية)`, nowMs, reporterId, accusedId);
       return {
         ok: true,
-        data: { caught: false, accusedName: acc.name },
-        toast: `😅 غلط يا معلم! ${acc.name} بريء — خسرت ${C.SPOKEN_PENALTY_POINTS}ن ومكانك اتكشف 10ث!`,
+        data: { ejected: false, count, needed, accusedName: acc.name },
+        toast: `تم تسجيل اتهامك لـ ${acc.name} (${count}/${needed} للأغلبية)`,
       };
-    }
-
-    // INVESTIGATOR-ONLY POWER: Scan real map landmark
-    requestLocationQuestion(playerId, poiIdOrName) {
-      if (this.state.phase !== "ACTIVE") return { ok: false, error: "شغال بعد التشتيت بس" };
-      const p = this.state.players[playerId];
-      if (!p || !p.alive || p.role !== "INVESTIGATOR") return { ok: false, error: "مسح المعالم للمحققين بس!" };
-      if (p.points < C.LOCATION_QUESTION_COST) return { ok: false, error: `محتاج ${C.LOCATION_QUESTION_COST} نقطة` };
-      const poi = (this.state.pois || []).find((x) => x.id === poiIdOrName || x.name === poiIdOrName);
-      if (!poi) return { ok: false, error: "المكان ده مش متاح للمسح دلوقتي" };
-      p.points -= C.LOCATION_QUESTION_COST;
-      const scanRadius = Math.max(60, Math.round(this.state.zone.currentRadiusMeters * 0.35));
-      const cnt = this.getLivingPlayers().filter(
-        (x) => x.id !== playerId && distanceMeters(x.coords, { lat: poi.lat, lng: poi.lng }) <= scanRadius
-      ).length;
-      const intelText = cnt > 0
-        ? `مسح محيط «${poi.name}»: الرادار لقط ${cnt} لاعب(ين) قريبين منه دلوقتي.`
-        : `مسح محيط «${poi.name}»: فاضي تماماً حالياً، مفيش حد قريب منه.`;
-      const saved = this.addPrivateIntel(playerId, "LOC_Q", `مسح ${poi.name}`, intelText, C.LOCATION_QUESTION_COST, "radar");
-      return { ok: true, intelId: saved.id, intelText };
     }
 
     // INVESTIGATOR-ONLY POWER: Bold Hint on Imposter

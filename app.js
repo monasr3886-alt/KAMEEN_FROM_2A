@@ -472,9 +472,6 @@ window.Kameen = window.Kameen || {};
         res = st.engine.activateJammer(playerId, t);
         if (res.ok) K.SFX.play("alarm");
         break;
-      case "LOC_Q":
-        res = st.engine.requestLocationQuestion(playerId, data.placeId);
-        break;
       case "BOLD_HINT":
         res = st.engine.requestBoldHint(playerId);
         if (res.ok && res.meta) {
@@ -548,7 +545,7 @@ window.Kameen = window.Kameen || {};
       K.Map.updateLayers();
       K.UI.updateHudOnly();
       if (st.modal === "live_chat") K.UI.updateLiveChatDynamic();
-      else if (st.modal === "intel_log" && type !== "UPDATE_LOC") K.UI.renderModal();
+      else if ((st.modal === "intel_log" || st.modal === "spoken") && type !== "UPDATE_LOC") K.UI.renderModal();
     } else if (st.route === "meeting") {
       K.UI.updateMeetingDynamic();
     } else if (st.route === "result") {
@@ -661,6 +658,7 @@ window.Kameen = window.Kameen || {};
       K.Map.updateLayers();
       K.UI.updateHudOnly();
       if (st.modal === "live_chat") K.UI.updateLiveChatDynamic();
+      else if (st.modal === "spoken") K.UI.renderModal();
     } else if (st.route === "meeting") {
       K.UI.updateMeetingDynamic();
     } else if (st.route === "result") {
@@ -1027,13 +1025,6 @@ window.Kameen = window.Kameen || {};
     K.UI.renderModal();
     dispatchAction(type);
   };
-  window.onScanPlace = (placeId) => {
-    K.state.intelTab = "private";
-    K.state.privateScanOpen = false;
-    K.state.modal = "intel_log";
-    K.UI.renderModal();
-    dispatchAction("LOC_Q", { placeId });
-  };
   window.onSwitchIntelTab = (tab) => {
     K.SFX.play("click");
     K.state.intelTab = tab === "private" ? "private" : "public";
@@ -1045,24 +1036,15 @@ window.Kameen = window.Kameen || {};
     K.state.meetingIntelTab = tab === "private" ? "private" : "public";
     K.UI.renderPage();
   };
-  window.onTogglePrivateScanBox = () => {
-    K.SFX.play("click");
-    K.state.privateScanOpen = !K.state.privateScanOpen;
-    K.UI.renderModal();
-  };
   window.onBuyPrivateIntel = (type) => {
     K.SFX.play("click");
     K.state.intelTab = "private";
-    K.state.privateScanOpen = false;
     dispatchAction(type);
   };
-  window.onBuyPrivateScan = (placeId) => {
+  window.onSpokenName = (accusedId) => {
     K.SFX.play("click");
-    K.state.intelTab = "private";
-    K.state.privateScanOpen = false;
-    dispatchAction("LOC_Q", { placeId });
+    dispatchAction("SPOKEN", { accusedId });
   };
-  window.onSpokenName = (accusedId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("SPOKEN", { accusedId }); };
   window.onStartMission = (missionId) => { K.state.modal = null; K.UI.renderModal(); dispatchAction("MISSION_START", { missionId }); };
   window.onRerollMission = (missionId) => {
     dispatchAction("REROLL_MISSION", { missionId });

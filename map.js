@@ -596,14 +596,68 @@ window.Kameen = window.Kameen || {};
     }
   }
 
+  function selectSpatiallyDistributedPOIs(candidates, center, radius, targetCount = 20) {
+    if (!candidates.length) return [];
+    // Bucket candidates into 3 concentric rings (inner 0-38%, mid 38-70%, outer 70-94%) x 8 angular sectors
+    // so the 20 chosen real-world places cover EVERY part of the zone (center + middle + edges)!
+    const enriched = candidates.map((item) => {
+      const dist = K.Geo.distanceMeters(center, item);
+      const frac = dist / Math.max(1, radius);
+      const ring = frac <= 0.38 ? 0 : (frac <= 0.70 ? 1 : 2);
+      const ang = (Math.atan2(item.lng - center.lng, item.lat - center.lat) * 180 / Math.PI + 360) % 360;
+      const sector = Math.floor(ang / 45) % 8;
+      return { ...item, _dist: dist, _ring: ring, _sector: sector };
+    });
+
+    const chosen = [];
+    const chosenIds = new Set();
+    const minSpacing = Math.max(16, Math.min(42, radius * 0.14));
+
+    const tryAdd = (cand, enforceSpacing) => {
+      if (chosenIds.has(cand.id) || chosen.length >= targetCount) return false;
+      if (enforceSpacing) {
+        for (const ex of chosen) {
+          if (K.Geo.distanceMeters(ex, cand) < minSpacing) return false;
+        }
+      }
+      chosenIds.add(cand.id);
+      const { _dist, _ring, _sector, ...clean } = cand;
+      chosen.push(clean);
+      return true;
+    };
+
+    // Pass 1: Round-robin across rings (inner first so shrinking zone ALWAYS has real POIs!) and 8 sectors
+    for (let ring = 0; ring <= 2; ring++) {
+      for (let sec = 0; sec < 8; sec++) {
+        const hit = enriched.find((c) => c._ring === ring && c._sector === sec && !chosenIds.has(c.id));
+        if (hit) tryAdd(hit, true);
+      }
+    }
+    // Pass 2: Fill remaining slots with well-spaced real places (preferring landmarks & inner/mid rings)
+    enriched.sort((a, b) => (a._ring - b._ring) || ((a.category === "landmark" ? 0 : 1) - (b.category === "landmark" ? 0 : 1)));
+    for (const c of enriched) {
+      if (chosen.length >= targetCount) break;
+      tryAdd(c, true);
+    }
+    // Pass 3: Relax spacing if needed to reach 20 real places
+    for (const c of enriched) {
+      if (chosen.length >= targetCount) break;
+      tryAdd(c, false);
+    }
+    return chosen;
+  }
+
   async function fetchOverpassPOIs(center, radius, applyToActiveEngine = false) {
-    const searchR = Math.min(1000, Math.max(radius + 80, 240));
+    const TARGET_POIS = 20;
+    const searchR = Math.min(1200, Math.max(Math.round(radius * 0.96), 160));
     const query =
-      `[out:json][timeout:8];(` +
-      `way["name"]["highway"~"primary|secondary|tertiary|residential|unclassified|pedestrian"](around:${searchR},${center.lat},${center.lng});` +
-      `nwr["name"]["amenity"~"mosque|place_of_worship|cafe|restaurant|pharmacy|bank|school|hospital|marketplace|parking"](around:${searchR},${center.lat},${center.lng});` +
-      `nwr["name"]["leisure"~"park|playground|sports_centre|stadium|garden|club"](around:${searchR},${center.lat},${center.lng});` +
-      `);out center 50;`;
+      `[out:json][timeout:10];(` +
+      `way["name"]["highway"~"primary|secondary|tertiary|residential|unclassified|pedestrian|living_street"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["amenity"~"mosque|place_of_worship|cafe|restaurant|fast_food|pharmacy|bank|school|college|hospital|clinic|marketplace|parking|fuel|library|post_office"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["shop"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["leisure"~"park|playground|sports_centre|stadium|garden|club|pitch"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["building"](around:${searchR},${center.lat},${center.lng});` +
+      `);out center 140;`;
 
     const mirrors = [
       "https://overpass-api.de/api/interpreter",
@@ -614,7 +668,7 @@ window.Kameen = window.Kameen || {};
     for (const endpoint of mirrors) {
       try {
         const ctrl = new AbortController();
-        const tm = setTimeout(() => ctrl.abort(), 7000);
+        const tm = setTimeout(() => ctrl.abort(), 8500);
         const res = await fetch(endpoint, {
           method: "POST", signal: ctrl.signal,
           body: "data=" + encodeURIComponent(query),
@@ -623,8 +677,7 @@ window.Kameen = window.Kameen || {};
         if (!res.ok) continue;
         const data = await res.json();
         const seenNames = new Set();
-        const streets = [];
-        const landmarks = [];
+        const insideCandidates = [];
 
         for (const el of (data.elements || [])) {
           if (el.tags && el.tags.access === "private") continue;
@@ -632,11 +685,14 @@ window.Kameen = window.Kameen || {};
           const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
           if (typeof lat !== "number" || typeof lng !== "number") continue;
 
+          // Strictly keep places INSIDE the actual zone circle
+          if (K.Geo.distanceMeters(center, { lat, lng }) > radius * 0.94) continue;
+
           const rawName = (el.tags && (el.tags["name:ar"] || el.tags.name || el.tags["alt_name:ar"])) || "";
           const cleanName = rawName.trim();
           if (!cleanName || cleanName.length < 2) continue;
 
-          const isStreet = Boolean(el.tags && el.tags.highway && !el.tags.amenity && !el.tags.leisure);
+          const isStreet = Boolean(el.tags && el.tags.highway && !el.tags.amenity && !el.tags.leisure && !el.tags.shop);
           const displayName = isStreet && !/^(شارع|طريق|محور|ميدان|كوبري|حارة|زقاق|ممر)/.test(cleanName)
             ? `شارع ${cleanName}` : cleanName;
 
@@ -644,23 +700,49 @@ window.Kameen = window.Kameen || {};
           if (seenNames.has(key)) continue;
           seenNames.add(key);
 
-          const item = { id: "osm-" + el.id, name: displayName, category: isStreet ? "street" : "landmark", lat, lng, isReal: true };
-          if (isStreet) streets.push(item);
-          else landmarks.push(item);
+          insideCandidates.push({
+            id: "osm-" + el.id,
+            name: displayName,
+            category: isStreet ? "street" : "landmark",
+            lat, lng,
+            isReal: true,
+          });
         }
 
-        realPois = [...streets.slice(0, 12), ...landmarks.slice(0, 6)].slice(0, 18);
-        if (realPois.length >= 2) break;
+        if (insideCandidates.length >= 2) {
+          realPois = selectSpatiallyDistributedPOIs(insideCandidates, center, radius, TARGET_POIS);
+          break;
+        }
       } catch {}
     }
 
-    if (realPois.length >= 2) {
-      K.state.createForm.pois = realPois;
-      K.state.createForm.poiSource = `${realPois.length} شارع ونقطة`;
-      if (applyToActiveEngine && K.state.engine) K.state.engine.setPOIs(realPois);
-    } else {
-      K.state.createForm.pois = K.Geo.generateFallbackPOIs(center, radius);
-      K.state.createForm.poiSource = "نقاط رادار محلية";
+    // Ensure we always have 20 POIs distributed across the entire zone (real OSM first, top-up only if area is sparse)
+    let finalPois = [...realPois];
+    if (finalPois.length < TARGET_POIS) {
+      const fillers = K.Geo.generateFallbackPOIs(center, radius, Math.random, TARGET_POIS);
+      for (const fp of fillers) {
+        if (finalPois.length >= TARGET_POIS) break;
+        const tooClose = finalPois.some((ex) => K.Geo.distanceMeters(ex, fp) < Math.max(15, radius * 0.12));
+        if (!tooClose) {
+          if (realPois.length > 0) {
+            const nearReal = K.Geo.getNearestPOI(fp, realPois);
+            if (nearReal) {
+              const dir = K.Geo.getArabicDirection(nearReal.poi, fp);
+              fp.name = `ناحية ${nearReal.poi.name} (${dir})`;
+            }
+          }
+          finalPois.push(fp);
+        }
+      }
+    }
+
+    K.state.createForm.pois = finalPois.slice(0, TARGET_POIS);
+    K.state.createForm.poiSource = realPois.length > 0
+      ? `${realPois.length} مكان حقيقي (إجمالي ${K.state.createForm.pois.length})`
+      : `${K.state.createForm.pois.length} نقطة موزعة على الزون`;
+
+    if (applyToActiveEngine && K.state.engine) {
+      K.state.engine.setPOIs(K.state.createForm.pois);
     }
 
     if (K.state.route === "create" || (applyToActiveEngine && (K.state.route === "game" || K.state.route === "simulation"))) {
