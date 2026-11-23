@@ -596,10 +596,76 @@ window.Kameen = window.Kameen || {};
     }
   }
 
+  function formatExactOutdoorPlaceName(tags, lat, lng, fallbackIdx = 1) {
+    const raw = (tags && (tags["name:ar"] || tags.name || tags["alt_name:ar"])) || "";
+    const clean = String(raw).trim();
+    const amenity = String((tags && tags.amenity) || "").toLowerCase();
+    const leisure = String((tags && tags.leisure) || "").toLowerCase();
+    const highway = String((tags && tags.highway) || "").toLowerCase();
+    const placeType = String((tags && tags.place) || "").toLowerCase();
+    const manMade = String((tags && tags.man_made) || "").toLowerCase();
+    const bridge = String((tags && tags.bridge) || "").toLowerCase();
+    const building = String((tags && tags.building) || "").toLowerCase();
+
+    const isMosque = amenity === "mosque" || (tags && tags.religion === "muslim" && amenity === "place_of_worship");
+    const isChurch = amenity === "place_of_worship" && !isMosque;
+    const isPark = ["park", "garden", "playground", "pitch", "sports_centre", "stadium", "track", "dog_park"].includes(leisure);
+    const isSquare = placeType === "square" || highway === "pedestrian";
+    const isBridge = Boolean(bridge && bridge !== "no") || manMade === "bridge";
+    const isStreet = Boolean(highway && !amenity && !leisure && !placeType);
+
+    if (clean && clean.length >= 2) {
+      if (isMosque && !/^(مسجد|جامع)\s/u.test(clean)) {
+        return `مسجد ${clean}`;
+      }
+      if (isChurch && !/^(كنيسة)\s/u.test(clean)) {
+        return `كنيسة ${clean}`;
+      }
+      if (isPark && !/^(حديقة|جنينة|ملعب|نادي|استاد)\s/u.test(clean)) {
+        return `حديقة ${clean}`;
+      }
+      if (isSquare && !/^(ميدان|ساحة|ممشى)\s/u.test(clean)) {
+        return `ميدان ${clean}`;
+      }
+      if (isBridge && !/^(كوبري|جسر)\s/u.test(clean)) {
+        return `كوبري ${clean}`;
+      }
+      if (isStreet && !/^(شارع|طريق|محور|ميدان|كوبري|حارة|زقاق|ممر)\s/u.test(clean)) {
+        return `شارع ${clean}`;
+      }
+      // Return full exact name as written on the map
+      return clean;
+    }
+
+    // Unnamed outdoor feature fallback (NEVER an indoor shop)
+    if (isMosque) return `مسجد المنطقة #${fallbackIdx}`;
+    if (isPark) return `حديقة مفتوحة #${fallbackIdx}`;
+    if (highway === "footway" || highway === "pedestrian") return `ممر خارجي #${fallbackIdx}`;
+    if (highway === "residential" || highway === "living_street" || highway === "unclassified") {
+      return `شارع فرعي خارجي #${fallbackIdx}`;
+    }
+    if (highway) return `طريق خارجي #${fallbackIdx}`;
+    if (building && building !== "yes") return `مبنى خارجي #${fallbackIdx}`;
+    return `نقطة خارجية #${fallbackIdx}`;
+  }
+
+  function classifyOutdoorKind(tags) {
+    const amenity = String((tags && tags.amenity) || "").toLowerCase();
+    const leisure = String((tags && tags.leisure) || "").toLowerCase();
+    const placeType = String((tags && tags.place) || "").toLowerCase();
+    const highway = String((tags && tags.highway) || "").toLowerCase();
+    if (amenity === "mosque" || amenity === "place_of_worship") return "outdoor_landmark";
+    if (["park", "garden", "playground", "pitch", "sports_centre", "stadium"].includes(leisure)) return "outdoor_open";
+    if (placeType === "square" || highway === "pedestrian" || highway === "footway") return "outdoor_open";
+    if (["school", "university", "college", "hospital", "clinic", "library", "post_office", "bank", "fuel", "parking"].includes(amenity)) {
+      return "outdoor_landmark";
+    }
+    if (highway) return "outdoor_street";
+    return "outdoor_other";
+  }
+
   function selectSpatiallyDistributedPOIs(candidates, center, radius, targetCount = 20) {
     if (!candidates.length) return [];
-    // Bucket candidates into 3 concentric rings (inner 0-38%, mid 38-70%, outer 70-94%) x 8 angular sectors
-    // so the 20 chosen real-world places cover EVERY part of the zone (center + middle + edges)!
     const enriched = candidates.map((item) => {
       const dist = K.Geo.distanceMeters(center, item);
       const frac = dist / Math.max(1, radius);
@@ -612,6 +678,13 @@ window.Kameen = window.Kameen || {};
     const chosen = [];
     const chosenIds = new Set();
     const minSpacing = Math.max(16, Math.min(42, radius * 0.14));
+
+    const kindPriority = (k) => {
+      if (k === "outdoor_landmark") return 0;
+      if (k === "outdoor_open") return 1;
+      if (k === "outdoor_street") return 2;
+      return 3;
+    };
 
     const tryAdd = (cand, enforceSpacing) => {
       if (chosenIds.has(cand.id) || chosen.length >= targetCount) return false;
@@ -626,21 +699,23 @@ window.Kameen = window.Kameen || {};
       return true;
     };
 
-    // Pass 1: Round-robin across rings (inner first so shrinking zone ALWAYS has real POIs!) and 8 sectors
+    // Pass 1: Round-robin across 3 rings x 8 sectors prioritizing outdoor landmarks & open outdoor spaces
     for (let ring = 0; ring <= 2; ring++) {
       for (let sec = 0; sec < 8; sec++) {
-        const hit = enriched.find((c) => c._ring === ring && c._sector === sec && !chosenIds.has(c.id));
-        if (hit) tryAdd(hit, true);
+        const bucket = enriched
+          .filter((c) => c._ring === ring && c._sector === sec && !chosenIds.has(c.id))
+          .sort((a, b) => kindPriority(a._kind) - kindPriority(b._kind));
+        if (bucket[0]) tryAdd(bucket[0], true);
       }
     }
-    // Pass 2: Fill remaining slots with well-spaced real places (preferring landmarks & inner/mid rings)
-    enriched.sort((a, b) => (a._ring - b._ring) || ((a.category === "landmark" ? 0 : 1) - (b.category === "landmark" ? 0 : 1)));
-    for (const c of enriched) {
+    // Pass 2: Fill remaining slots with spaced outdoor places
+    const sorted = [...enriched].sort((a, b) => (a._ring - b._ring) || (kindPriority(a._kind) - kindPriority(b._kind)));
+    for (const c of sorted) {
       if (chosen.length >= targetCount) break;
       tryAdd(c, true);
     }
-    // Pass 3: Relax spacing if needed to reach 20 real places
-    for (const c of enriched) {
+    // Pass 3: Relax spacing if needed to reach 20 outdoor places
+    for (const c of sorted) {
       if (chosen.length >= targetCount) break;
       tryAdd(c, false);
     }
@@ -650,13 +725,14 @@ window.Kameen = window.Kameen || {};
   async function fetchOverpassPOIs(center, radius, applyToActiveEngine = false) {
     const TARGET_POIS = 20;
     const searchR = Math.min(1200, Math.max(Math.round(radius * 0.96), 160));
+    // Query outdoor streets, squares, parks, mosques, schools, clinics, landmarks ONLY (no indoor shop=*!)
     const query =
       `[out:json][timeout:10];(` +
-      `way["name"]["highway"~"primary|secondary|tertiary|residential|unclassified|pedestrian|living_street"](around:${searchR},${center.lat},${center.lng});` +
-      `nwr["name"]["amenity"~"mosque|place_of_worship|cafe|restaurant|fast_food|pharmacy|bank|school|college|hospital|clinic|marketplace|parking|fuel|library|post_office"](around:${searchR},${center.lat},${center.lng});` +
-      `nwr["name"]["shop"](around:${searchR},${center.lat},${center.lng});` +
+      `way["name"]["highway"~"primary|secondary|tertiary|residential|unclassified|pedestrian|living_street|footway"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["amenity"~"mosque|place_of_worship|park|school|college|university|hospital|clinic|library|post_office|bank|fuel|parking"](around:${searchR},${center.lat},${center.lng});` +
       `nwr["name"]["leisure"~"park|playground|sports_centre|stadium|garden|club|pitch"](around:${searchR},${center.lat},${center.lng});` +
-      `nwr["name"]["building"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["place"="square"](around:${searchR},${center.lat},${center.lng});` +
+      `nwr["name"]["man_made"="bridge"](around:${searchR},${center.lat},${center.lng});` +
       `);out center 140;`;
 
     const mirrors = [
@@ -678,6 +754,7 @@ window.Kameen = window.Kameen || {};
         const data = await res.json();
         const seenNames = new Set();
         const insideCandidates = [];
+        let fbCounter = 1;
 
         for (const el of (data.elements || [])) {
           if (el.tags && el.tags.access === "private") continue;
@@ -685,25 +762,21 @@ window.Kameen = window.Kameen || {};
           const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
           if (typeof lat !== "number" || typeof lng !== "number") continue;
 
-          // Strictly keep places INSIDE the actual zone circle
           if (K.Geo.distanceMeters(center, { lat, lng }) > radius * 0.94) continue;
 
-          const rawName = (el.tags && (el.tags["name:ar"] || el.tags.name || el.tags["alt_name:ar"])) || "";
-          const cleanName = rawName.trim();
-          if (!cleanName || cleanName.length < 2) continue;
-
-          const isStreet = Boolean(el.tags && el.tags.highway && !el.tags.amenity && !el.tags.leisure && !el.tags.shop);
-          const displayName = isStreet && !/^(شارع|طريق|محور|ميدان|كوبري|حارة|زقاق|ممر)/.test(cleanName)
-            ? `شارع ${cleanName}` : cleanName;
+          const displayName = formatExactOutdoorPlaceName(el.tags || {}, lat, lng, fbCounter++);
+          if (!displayName || displayName.length < 2) continue;
 
           const key = displayName.toLowerCase();
           if (seenNames.has(key)) continue;
           seenNames.add(key);
 
+          const kind = classifyOutdoorKind(el.tags || {});
           insideCandidates.push({
             id: "osm-" + el.id,
             name: displayName,
-            category: isStreet ? "street" : "landmark",
+            category: kind === "outdoor_street" ? "street" : "landmark",
+            _kind: kind,
             lat, lng,
             isReal: true,
           });
@@ -716,7 +789,6 @@ window.Kameen = window.Kameen || {};
       } catch {}
     }
 
-    // Ensure we always have 20 POIs distributed across the entire zone (real OSM first, top-up only if area is sparse)
     let finalPois = [...realPois];
     if (finalPois.length < TARGET_POIS) {
       const fillers = K.Geo.generateFallbackPOIs(center, radius, Math.random, TARGET_POIS);
@@ -724,13 +796,6 @@ window.Kameen = window.Kameen || {};
         if (finalPois.length >= TARGET_POIS) break;
         const tooClose = finalPois.some((ex) => K.Geo.distanceMeters(ex, fp) < Math.max(15, radius * 0.12));
         if (!tooClose) {
-          if (realPois.length > 0) {
-            const nearReal = K.Geo.getNearestPOI(fp, realPois);
-            if (nearReal) {
-              const dir = K.Geo.getArabicDirection(nearReal.poi, fp);
-              fp.name = `ناحية ${nearReal.poi.name} (${dir})`;
-            }
-          }
           finalPois.push(fp);
         }
       }
@@ -738,8 +803,8 @@ window.Kameen = window.Kameen || {};
 
     K.state.createForm.pois = finalPois.slice(0, TARGET_POIS);
     K.state.createForm.poiSource = realPois.length > 0
-      ? `${realPois.length} مكان حقيقي (إجمالي ${K.state.createForm.pois.length})`
-      : `${K.state.createForm.pois.length} نقطة موزعة على الزون`;
+      ? `${realPois.length} مكان خارجي حقيقي`
+      : `${K.state.createForm.pois.length} مكان خارجي موزع على الزون`;
 
     if (applyToActiveEngine && K.state.engine) {
       K.state.engine.setPOIs(K.state.createForm.pois);
