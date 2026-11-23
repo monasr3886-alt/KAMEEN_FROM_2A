@@ -1139,7 +1139,7 @@ window.Kameen = window.Kameen || {};
       const place = getNearbyPlaceLabel(best.coords, this.state.pois);
       const dir = getArabicDirection(p.coords, best.coords);
       const txt = `رادار الصيد: أقرب ضحية (${best.name}) موجود ${place} — على بُعد ${Math.round(bestD)}م ناحية الـ${dir}.`;
-      const saved = this.addPrivateIntel(playerId, "BLOODHOUND", "رادار الصيد", txt, C.BLOODHOUND_COST, "radar");
+      const saved = this.addPrivateIntel(playerId, "BLOODHOUND", "رادار الصيد", txt, C.BLOODHOUND_COST, "radar", this.state.nowMs, best.coords);
       return { ok: true, intelId: saved.id, intelText: txt };
     }
 
@@ -1423,7 +1423,7 @@ window.Kameen = window.Kameen || {};
       const dist = Math.round(distanceMeters(p.coords, imp.coords));
       const dir = getArabicDirection(p.coords, imp.coords);
       const intelText = `تلميح مباشر: الغدّار حالياً ${place}.. بينه وبينك حوالي ${dist}م ناحية الـ${dir}.`;
-      const saved = this.addPrivateIntel(playerId, "BOLD_HINT", "تلميح مباشر للغدّار", intelText, C.BOLD_HINT_COST, "radar");
+      const saved = this.addPrivateIntel(playerId, "BOLD_HINT", "تلميح مباشر للغدّار", intelText, C.BOLD_HINT_COST, "radar", this.state.nowMs, imp.coords);
       return { ok: true, intelId: saved.id, intelText, meta: { place, dist, dir } };
     }
 
@@ -1472,7 +1472,7 @@ window.Kameen = window.Kameen || {};
         ? `أقرب صيدة (${best.name}) موجود ${place} على بُعد ${Math.round(nearest)}م ناحية الـ${dir}!`
         : `أقرب غدّار ليك موجود ${place} على بُعد ${Math.round(nearest)}م ناحية الـ${dir}!`;
       const fullTxt = `صفقة السمسار: ${label}`;
-      const saved = this.addPrivateIntel(playerId, "BROKER", "صفقة السمسار السرية", fullTxt, 0, "broker", nowMs);
+      const saved = this.addPrivateIntel(playerId, "BROKER", "صفقة السمسار السرية", fullTxt, 0, "broker", nowMs, best.coords);
       return {
         ok: true,
         intelId: saved.id,
@@ -1547,9 +1547,11 @@ window.Kameen = window.Kameen || {};
       };
     }
 
-    addPrivateIntel(playerId, kind, title, text, cost = 0, source = "radar", nowMs = this.state.nowMs) {
+    addPrivateIntel(playerId, kind, title, text, cost = 0, source = "radar", nowMs = this.state.nowMs, coords = null) {
       if (!this.state.privateIntel) this.state.privateIntel = {};
       if (!Array.isArray(this.state.privateIntel[playerId])) this.state.privateIntel[playerId] = [];
+      const actor = this.state.players[playerId];
+      const pt = coords || (actor && actor.coords) || this.state.zone.center;
       const item = {
         id: this.nextEventId("pintel"),
         kind,
@@ -1557,6 +1559,7 @@ window.Kameen = window.Kameen || {};
         text,
         cost,
         source,
+        coords: pt ? { lat: pt.lat, lng: pt.lng } : null,
         createdAtMs: nowMs,
       };
       this.state.privateIntel[playerId].push(item);
@@ -1605,7 +1608,7 @@ window.Kameen = window.Kameen || {};
       else behaviorClue = "عمال يلف ويتنقل حوالين المنطقة بهدوء مريب";
 
       const fallbackText = `تحليل خاص: رصدنا سلوك مريب ${place} (حوالي ${dist}م ناحية الـ${dir} منك) — اللاعب ده ${behaviorClue}. راقب مين كان هناك!`;
-      const saved = this.addPrivateIntel(playerId, "PRIVATE_PROFILE", "تحليل سلوكي خاص", fallbackText, cost, "radar", nowMs);
+      const saved = this.addPrivateIntel(playerId, "PRIVATE_PROFILE", "تحليل سلوكي خاص", fallbackText, cost, "radar", nowMs, target.coords);
       return {
         ok: true,
         intelId: saved.id,
@@ -1647,7 +1650,7 @@ window.Kameen = window.Kameen || {};
       const nextStop = invMissions ? `ومحتمل يتحرك ناحية ${invMissions.poi.name}` : "وخلّص معظم مهامه — لازم تلحقه!";
 
       const fallbackText = `تحليل الصياد: أسهل هدف معزول حالياً هو «${bestIso.name}» ${isoPlace} (${isoDist}م ناحية الـ${isoDir}) ${nextStop}`;
-      const saved = this.addPrivateIntel(playerId, "IMP_INTEL", "تحليل الصياد الخاص", fallbackText, cost, "radar", nowMs);
+      const saved = this.addPrivateIntel(playerId, "IMP_INTEL", "تحليل الصياد الخاص", fallbackText, cost, "radar", nowMs, bestIso.coords);
       return {
         ok: true,
         intelId: saved.id,
@@ -1656,8 +1659,51 @@ window.Kameen = window.Kameen || {};
       };
     }
 
-    addAIReport(summaryText, source, nowMs = this.state.nowMs) {
-      const report = { id: this.nextEventId("ai"), createdAtMs: nowMs, summaryText, source };
+    inferCoordsFromSummary(summaryText) {
+      const txt = String(summaryText || "");
+      const living = this.getLivingPlayers();
+      const pois = this.state.pois || [];
+      // 1. Check if report mentions any specific POI name
+      for (const poi of pois) {
+        if (poi.name && txt.includes(poi.name)) {
+          return { lat: poi.lat, lng: poi.lng };
+        }
+      }
+      // 2. Check directional clues relative to zone center or viewer
+      const zc = this.state.zone.center;
+      const zr = Math.max(30, this.state.zone.currentRadiusMeters * 0.45);
+      const dirOffsets = [
+        { key: "شمال شرق", n: zr * 0.7, e: zr * 0.7 },
+        { key: "شمال غرب", n: zr * 0.7, e: -zr * 0.7 },
+        { key: "جنوب شرق", n: -zr * 0.7, e: zr * 0.7 },
+        { key: "جنوب غرب", n: -zr * 0.7, e: -zr * 0.7 },
+        { key: "شمال", n: zr * 0.8, e: 0 },
+        { key: "جنوب", n: -zr * 0.8, e: 0 },
+        { key: "شرق", n: 0, e: zr * 0.8 },
+        { key: "غرب", n: 0, e: -zr * 0.8 },
+      ];
+      for (const d of dirOffsets) {
+        if (txt.includes(d.key)) {
+          const base = (living[0] && living[0].coords) || zc;
+          const pt = offsetCoordinates(base, d.n, d.e);
+          return { lat: pt.lat, lng: pt.lng };
+        }
+      }
+      // 3. Fallback to first active POI or living player location
+      if (pois.length > 0) return { lat: pois[0].lat, lng: pois[0].lng };
+      if (living.length > 0 && living[0].coords) return { lat: living[0].coords.lat, lng: living[0].coords.lng };
+      return { lat: zc.lat, lng: zc.lng };
+    }
+
+    addAIReport(summaryText, source, nowMs = this.state.nowMs, coords = null) {
+      const pt = coords || this.inferCoordsFromSummary(summaryText);
+      const report = {
+        id: this.nextEventId("ai"),
+        createdAtMs: nowMs,
+        summaryText,
+        source,
+        coords: pt ? { lat: pt.lat, lng: pt.lng } : null,
+      };
       this.state.aiReports.push(report);
       this.pushEvent("AI_REPORT", `🤖 المحلل: ${summaryText}`, nowMs);
       return report;

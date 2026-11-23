@@ -4,7 +4,7 @@ window.Kameen = window.Kameen || {};
 
 (function (K) {
   K.CONFIG = {
-    VERSION: "v5.5",
+    VERSION: "v5.6",
     LOGO_PATH: "./logo.jpg",
     DEFAULT_CENTER: { lat: 29.9753, lng: 30.9455, accuracyMeters: 6 },
     // الصق مفتاح Groq هنا لو هترفع مباشر على Vercel أو في Repo خاص (أو احفظه مرة واحدة من قائمة الإعدادات ☰)

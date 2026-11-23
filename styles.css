@@ -1492,3 +1492,10 @@ body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
   padding-top: 4px;
   border-top: 1px solid var(--border);
 }
+
+.kpin-analysis {
+  width: 26px; height: 26px;
+  background: var(--amber);
+  color: #09090B;
+  border: 2.5px solid #FFFFFF;
+}

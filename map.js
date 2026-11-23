@@ -28,6 +28,8 @@ window.Kameen = window.Kameen || {};
     bodies: new Map(),
     airdrop: null,
     decoy: null,
+    analysisPin: null,
+    lastAnalysisSig: "",
   };
 
   const selfAnim = {
@@ -191,6 +193,31 @@ window.Kameen = window.Kameen || {};
           paint: { "line-color": ["coalesce", ["get", "color"], "#38BDF8"], "line-width": 1.3, "line-opacity": 0.55 },
         });
       }
+      if (!map.getSource("kameen-compass-src")) map.addSource("kameen-compass-src", { type: "geojson", data: emptyFC() });
+      if (!map.getLayer("kameen-compass-axes")) {
+        map.addLayer({
+          id: "kameen-compass-axes", type: "line", source: "kameen-compass-src",
+          filter: ["==", ["get", "kind"], "axis"],
+          paint: { "line-color": "#3B3B4F", "line-width": 1, "line-dasharray": [4, 4], "line-opacity": 0.48 },
+        });
+      }
+      if (!map.getLayer("kameen-compass-labels")) {
+        map.addLayer({
+          id: "kameen-compass-labels", type: "symbol", source: "kameen-compass-src",
+          filter: ["==", ["get", "kind"], "dir_lbl"],
+          layout: {
+            "text-field": ["get", "label"],
+            "text-size": 12,
+            "text-allow-overlap": true,
+            "text-ignore-placement": true,
+          },
+          paint: {
+            "text-color": ["coalesce", ["get", "color"], "#F59E0B"],
+            "text-halo-color": "#000000",
+            "text-halo-width": 2.2,
+          },
+        });
+      }
       if (!map.getLayer("kameen-route-line")) {
         map.addLayer({
           id: "kameen-route-line", type: "line", source: "kameen-route-src",
@@ -224,6 +251,8 @@ window.Kameen = window.Kameen || {};
     if (reg.centerPin) { reg.centerPin.remove(); reg.centerPin = null; }
     if (reg.airdrop) { reg.airdrop.remove(); reg.airdrop = null; }
     if (reg.decoy) { reg.decoy.remove(); reg.decoy = null; }
+    if (reg.analysisPin) { reg.analysisPin.remove(); reg.analysisPin = null; }
+    reg.lastAnalysisSig = "";
     for (const m of [reg.missions, reg.players, reg.bodies]) {
       for (const mk of m.values()) mk.remove();
       m.clear();
@@ -933,6 +962,85 @@ window.Kameen = window.Kameen || {};
     });
   }
 
+  function setCompassOverlayGeoJson(center, radiusMeters) {
+    const map = K.state.glMap;
+    if (!map || !styleReady) return;
+    const src = map.getSource("kameen-compass-src");
+    if (!src) return;
+    const rOuter = Math.max(25, (radiusMeters || 200) * 0.82);
+    const rSub = rOuter * 0.72;
+    const dirs = [
+      { label: "↑ شمال", deg: 0, r: rOuter, color: "#F59E0B" },
+      { label: "↗ شمال شرق", deg: 45, r: rSub, color: "#94A3B8" },
+      { label: "شرق →", deg: 90, r: rOuter, color: "#F59E0B" },
+      { label: "↘ جنوب شرق", deg: 135, r: rSub, color: "#94A3B8" },
+      { label: "↓ جنوب", deg: 180, r: rOuter, color: "#F59E0B" },
+      { label: "↙ جنوب غرب", deg: 225, r: rSub, color: "#94A3B8" },
+      { label: "← غرب", deg: 270, r: rOuter, color: "#F59E0B" },
+      { label: "↖ شمال غرب", deg: 315, r: rSub, color: "#94A3B8" },
+    ];
+    const features = [];
+    for (const d of dirs) {
+      const rad = (d.deg * Math.PI) / 180;
+      const dLat = (d.r / EARTH_R) * (180 / Math.PI);
+      const cosLat = Math.max(0.05, Math.cos((center.lat * Math.PI) / 180));
+      const dLng = dLat / cosLat;
+      const endPt = [center.lng + Math.sin(rad) * dLng, center.lat + Math.cos(rad) * dLat];
+      if (d.deg % 90 === 0) {
+        features.push({
+          type: "Feature",
+          properties: { kind: "axis" },
+          geometry: { type: "LineString", coordinates: [[center.lng, center.lat], endPt] },
+        });
+      }
+      features.push({
+        type: "Feature",
+        properties: { kind: "dir_lbl", label: d.label, color: d.color },
+        geometry: { type: "Point", coordinates: endPt },
+      });
+    }
+    src.setData({ type: "FeatureCollection", features });
+  }
+
+  function syncAnalysisPin(vis, isSpread) {
+    const map = K.state.glMap;
+    if (!map) return;
+    if (isSpread || !vis) {
+      if (reg.analysisPin) { reg.analysisPin.remove(); reg.analysisPin = null; }
+      reg.lastAnalysisSig = "";
+      return;
+    }
+    const latestPub = (vis.aiReports && vis.aiReports.length) ? vis.aiReports[vis.aiReports.length - 1] : null;
+    const latestPriv = (vis.privateIntel && vis.privateIntel.length) ? vis.privateIntel[vis.privateIntel.length - 1] : null;
+
+    let activeAnalysis = null;
+    if (latestPub && latestPriv) {
+      activeAnalysis = (latestPriv.createdAtMs || 0) >= (latestPub.createdAtMs || 0) ? latestPriv : latestPub;
+    } else {
+      activeAnalysis = latestPriv || latestPub;
+    }
+
+    const pt = activeAnalysis && activeAnalysis.coords;
+    if (!pt || typeof pt.lat !== "number" || typeof pt.lng !== "number") {
+      if (reg.analysisPin) { reg.analysisPin.remove(); reg.analysisPin = null; }
+      reg.lastAnalysisSig = "";
+      return;
+    }
+
+    const sig = `${activeAnalysis.id}|${pt.lat.toFixed(5)}|${pt.lng.toFixed(5)}`;
+    if (reg.lastAnalysisSig === sig && reg.analysisPin) return;
+    reg.lastAnalysisSig = sig;
+
+    if (reg.analysisPin) {
+      reg.analysisPin.remove();
+      reg.analysisPin = null;
+    }
+    reg.analysisPin = new window.maplibregl.Marker({
+      element: makePinElement("kpin-analysis", "✦", "تحليل", "amber"),
+      anchor: "bottom",
+    }).setLngLat([pt.lng, pt.lat]).addTo(map);
+  }
+
   function updateLayers() {
     const st = K.state;
     if (st.mapStyle === "radar_offline" || typeof window.maplibregl === "undefined") {
@@ -969,6 +1077,7 @@ window.Kameen = window.Kameen || {};
     const isSpread = vis.phase === "SPREAD";
 
     setZoneGeoJson(vis.zone.center, vis.zone.currentRadiusMeters, vis.zone.nextCenter, vis.zone.nextRadiusMeters);
+    setCompassOverlayGeoJson(vis.zone.center, vis.zone.currentRadiusMeters);
 
     if (isSpread) {
       setRouteGeoJson(null, null);
@@ -1063,6 +1172,7 @@ window.Kameen = window.Kameen || {};
       );
     }
 
+    syncAnalysisPin(vis, isSpread);
     const selfColor = !vis.self.alive ? "#94A3B8" : (vis.self.role === "IMPOSTER" ? "#EF233C" : "#38BDF8");
     updateSelfMarkerOnMap(vis.self.coords, selfColor);
   }
