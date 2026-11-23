@@ -30,6 +30,7 @@ window.Kameen = window.Kameen || {};
     decoy: null,
     analysisPin: null,
     lastAnalysisSig: "",
+    zonePolyPins: [],
   };
 
   const selfAnim = {
@@ -198,7 +199,7 @@ window.Kameen = window.Kameen || {};
         map.addLayer({
           id: "kameen-compass-axes", type: "line", source: "kameen-compass-src",
           filter: ["==", ["get", "kind"], "axis"],
-          paint: { "line-color": "#3B3B4F", "line-width": 1, "line-dasharray": [4, 4], "line-opacity": 0.48 },
+          paint: { "line-color": "#64748B", "line-width": 1.3, "line-dasharray": [4, 4], "line-opacity": 0.65 },
         });
       }
       if (!map.getLayer("kameen-compass-labels")) {
@@ -207,7 +208,7 @@ window.Kameen = window.Kameen || {};
           filter: ["==", ["get", "kind"], "dir_lbl"],
           layout: {
             "text-field": ["get", "label"],
-            "text-size": 12,
+            "text-size": 13,
             "text-allow-overlap": true,
             "text-ignore-placement": true,
           },
@@ -253,6 +254,7 @@ window.Kameen = window.Kameen || {};
     if (reg.decoy) { reg.decoy.remove(); reg.decoy = null; }
     if (reg.analysisPin) { reg.analysisPin.remove(); reg.analysisPin = null; }
     reg.lastAnalysisSig = "";
+    if (Array.isArray(reg.zonePolyPins)) { for (const zp of reg.zonePolyPins) zp.remove(); reg.zonePolyPins = []; }
     for (const m of [reg.missions, reg.players, reg.bodies]) {
       for (const mk of m.values()) mk.remove();
       m.clear();
@@ -625,72 +627,57 @@ window.Kameen = window.Kameen || {};
     }
   }
 
-  function formatExactOutdoorPlaceName(tags, lat, lng, fallbackIdx = 1) {
+  function formatExactOutdoorPlaceName(tags, fallbackIdx = 1) {
     const raw = (tags && (tags["name:ar"] || tags.name || tags["alt_name:ar"])) || "";
     const clean = String(raw).trim();
     const amenity = String((tags && tags.amenity) || "").toLowerCase();
     const leisure = String((tags && tags.leisure) || "").toLowerCase();
     const highway = String((tags && tags.highway) || "").toLowerCase();
     const placeType = String((tags && tags.place) || "").toLowerCase();
-    const manMade = String((tags && tags.man_made) || "").toLowerCase();
     const bridge = String((tags && tags.bridge) || "").toLowerCase();
-    const building = String((tags && tags.building) || "").toLowerCase();
 
     const isMosque = amenity === "mosque" || (tags && tags.religion === "muslim" && amenity === "place_of_worship");
     const isChurch = amenity === "place_of_worship" && !isMosque;
-    const isPark = ["park", "garden", "playground", "pitch", "sports_centre", "stadium", "track", "dog_park"].includes(leisure);
+    const isPark = ["park", "garden", "playground", "pitch", "sports_centre", "stadium"].includes(leisure);
     const isSquare = placeType === "square" || highway === "pedestrian";
-    const isBridge = Boolean(bridge && bridge !== "no") || manMade === "bridge";
+    const isBridge = Boolean(bridge && bridge !== "no");
     const isStreet = Boolean(highway && !amenity && !leisure && !placeType);
 
     if (clean && clean.length >= 2) {
-      if (isMosque && !/^(مسجد|جامع)\s/u.test(clean)) {
-        return `مسجد ${clean}`;
-      }
-      if (isChurch && !/^(كنيسة)\s/u.test(clean)) {
-        return `كنيسة ${clean}`;
-      }
-      if (isPark && !/^(حديقة|جنينة|ملعب|نادي|استاد)\s/u.test(clean)) {
-        return `حديقة ${clean}`;
-      }
-      if (isSquare && !/^(ميدان|ساحة|ممشى)\s/u.test(clean)) {
-        return `ميدان ${clean}`;
-      }
-      if (isBridge && !/^(كوبري|جسر)\s/u.test(clean)) {
-        return `كوبري ${clean}`;
-      }
-      if (isStreet && !/^(شارع|طريق|محور|ميدان|كوبري|حارة|زقاق|ممر)\s/u.test(clean)) {
-        return `شارع ${clean}`;
-      }
-      // Return full exact name as written on the map
+      if (isMosque && !/^(مسجد|جامع)\s/u.test(clean)) return `مسجد ${clean}`;
+      if (isChurch && !/^(كنيسة)\s/u.test(clean)) return `كنيسة ${clean}`;
+      if (isPark && !/^(حديقة|جنينة|ملعب|نادي|استاد)\s/u.test(clean)) return `حديقة ${clean}`;
+      if (isSquare && !/^(ميدان|ساحة|ممشى)\s/u.test(clean)) return `ميدان ${clean}`;
+      if (isBridge && !/^(كوبري|جسر)\s/u.test(clean)) return `كوبري ${clean}`;
+      if (isStreet && !/^(شارع|طريق|محور|ميدان|كوبري|حارة|زقاق|ممر)\s/u.test(clean)) return `شارع ${clean}`;
       return clean;
     }
 
-    // Unnamed outdoor feature fallback (NEVER an indoor shop)
     if (isMosque) return `مسجد المنطقة #${fallbackIdx}`;
     if (isPark) return `حديقة مفتوحة #${fallbackIdx}`;
-    if (highway === "footway" || highway === "pedestrian") return `ممر خارجي #${fallbackIdx}`;
-    if (highway === "residential" || highway === "living_street" || highway === "unclassified") {
-      return `شارع فرعي خارجي #${fallbackIdx}`;
-    }
-    if (highway) return `طريق خارجي #${fallbackIdx}`;
-    if (building && building !== "yes") return `مبنى خارجي #${fallbackIdx}`;
-    return `نقطة خارجية #${fallbackIdx}`;
+    if (highway === "pedestrian" || highway === "footway") return `ممر خارجي #${fallbackIdx}`;
+    if (highway) return `شارع خارجي #${fallbackIdx}`;
+    return `معلم المنطقة #${fallbackIdx}`;
   }
 
-  function classifyOutdoorKind(tags) {
+  function scoreFamousPlace(tags) {
+    let score = 0;
     const amenity = String((tags && tags.amenity) || "").toLowerCase();
     const leisure = String((tags && tags.leisure) || "").toLowerCase();
-    const placeType = String((tags && tags.place) || "").toLowerCase();
     const highway = String((tags && tags.highway) || "").toLowerCase();
-    if (amenity === "mosque" || amenity === "place_of_worship") return "outdoor_landmark";
-    if (["park", "garden", "playground", "pitch", "sports_centre", "stadium"].includes(leisure)) return "outdoor_open";
-    if (placeType === "square" || highway === "pedestrian" || highway === "footway") return "outdoor_open";
+    const placeType = String((tags && tags.place) || "").toLowerCase();
+    const hasName = Boolean(tags && (tags["name:ar"] || tags.name || tags["alt_name:ar"]));
+
+    if (hasName) score += 20;
+    if (tags && (tags.wikipedia || tags.wikidata)) score += 35;
+    if (amenity === "mosque" || amenity === "place_of_worship" || placeType === "square") score += 16;
+    if (["park", "garden", "sports_centre", "stadium", "playground"].includes(leisure)) score += 14;
     if (["school", "university", "college", "hospital", "clinic", "library", "post_office", "bank", "fuel", "parking"].includes(amenity)) {
-      return "outdoor_landmark";
+      score += 12;
     }
-    if (highway) return "outdoor_street";
-    return "outdoor_other";
+    if (["primary", "secondary", "tertiary", "pedestrian"].includes(highway)) score += 10;
+    else if (highway) score += 5;
+    return score;
   }
 
   function selectSpatiallyDistributedPOIs(candidates, center, radius, targetCount = 20) {
@@ -706,14 +693,7 @@ window.Kameen = window.Kameen || {};
 
     const chosen = [];
     const chosenIds = new Set();
-    const minSpacing = Math.max(16, Math.min(42, radius * 0.14));
-
-    const kindPriority = (k) => {
-      if (k === "outdoor_landmark") return 0;
-      if (k === "outdoor_open") return 1;
-      if (k === "outdoor_street") return 2;
-      return 3;
-    };
+    const minSpacing = Math.max(18, Math.min(45, radius * 0.15));
 
     const tryAdd = (cand, enforceSpacing) => {
       if (chosenIds.has(cand.id) || chosen.length >= targetCount) return false;
@@ -728,22 +708,21 @@ window.Kameen = window.Kameen || {};
       return true;
     };
 
-    // Pass 1: Round-robin across 3 rings x 8 sectors prioritizing outdoor landmarks & open outdoor spaces
+    // Round-robin across 3 rings x 8 sectors picking the most prominent/famous place in each bucket
     for (let ring = 0; ring <= 2; ring++) {
       for (let sec = 0; sec < 8; sec++) {
         const bucket = enriched
           .filter((c) => c._ring === ring && c._sector === sec && !chosenIds.has(c.id))
-          .sort((a, b) => kindPriority(a._kind) - kindPriority(b._kind));
+          .sort((a, b) => (b._fame || 0) - (a._fame || 0));
         if (bucket[0]) tryAdd(bucket[0], true);
       }
     }
-    // Pass 2: Fill remaining slots with spaced outdoor places
-    const sorted = [...enriched].sort((a, b) => (a._ring - b._ring) || (kindPriority(a._kind) - kindPriority(b._kind)));
+
+    const sorted = [...enriched].sort((a, b) => (b._fame || 0) - (a._fame || 0) || (a._ring - b._ring));
     for (const c of sorted) {
       if (chosen.length >= targetCount) break;
       tryAdd(c, true);
     }
-    // Pass 3: Relax spacing if needed to reach 20 outdoor places
     for (const c of sorted) {
       if (chosen.length >= targetCount) break;
       tryAdd(c, false);
@@ -751,10 +730,59 @@ window.Kameen = window.Kameen || {};
     return chosen;
   }
 
+  // Background discovery of famous area landmarks via Nominatim search (no Google Maps tiles)
+  async function fetchAreaFamousPlaces(center, radius) {
+    const out = [];
+    try {
+      const addr = (center && center.suburb) || (center && center.neighbourhood) || (center && center.district) || "";
+      let areaQuery = "";
+      if (addr) {
+        areaQuery = addr;
+      } else {
+        const revUrl = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${encodeURIComponent(center.lat)}&lon=${encodeURIComponent(center.lng)}&zoom=16&accept-language=ar`;
+        const rCtrl = new AbortController();
+        const rTm = setTimeout(() => rCtrl.abort(), 4500);
+        const rRes = await fetch(revUrl, { signal: rCtrl.signal, headers: { "Accept": "application/json" } });
+        clearTimeout(rTm);
+        if (rRes.ok) {
+          const rJson = await rRes.json();
+          const a = rJson.address || {};
+          areaQuery = a.neighbourhood || a.suburb || a.quarter || a.city_district || a.town || a.city || "";
+        }
+      }
+      if (areaQuery) {
+        const sUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(areaQuery)}&limit=18&accept-language=ar`;
+        const sCtrl = new AbortController();
+        const sTm = setTimeout(() => sCtrl.abort(), 5000);
+        const sRes = await fetch(sUrl, { signal: sCtrl.signal, headers: { "Accept": "application/json" } });
+        clearTimeout(sTm);
+        if (sRes.ok) {
+          const list = await sRes.json();
+          for (const item of (Array.isArray(list) ? list : [])) {
+            const lat = Number(item.lat);
+            const lng = Number(item.lon);
+            if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+            if (K.Geo.distanceMeters(center, { lat, lng }) > radius * 0.94) continue;
+            const fullName = String(item.name || item.display_name || "").split(",")[0].trim();
+            if (!fullName || fullName.length < 2) continue;
+            out.push({
+              id: "area-" + (item.place_id || Math.random().toString(36).slice(2, 8)),
+              name: fullName,
+              category: "landmark",
+              _fame: 45 + (Number(item.importance || 0) * 30),
+              lat, lng,
+              isReal: true,
+            });
+          }
+        }
+      }
+    } catch {}
+    return out;
+  }
+
   async function fetchOverpassPOIs(center, radius, applyToActiveEngine = false) {
     const TARGET_POIS = 20;
     const searchR = Math.min(1200, Math.max(Math.round(radius * 0.96), 160));
-    // Query outdoor streets, squares, parks, mosques, schools, clinics, landmarks ONLY (no indoor shop=*!)
     const query =
       `[out:json][timeout:10];(` +
       `way["name"]["highway"~"primary|secondary|tertiary|residential|unclassified|pedestrian|living_street|footway"](around:${searchR},${center.lat},${center.lng});` +
@@ -769,7 +797,10 @@ window.Kameen = window.Kameen || {};
       "https://overpass.kumi.systems/api/interpreter",
     ];
 
-    let realPois = [];
+    const seenNames = new Set();
+    const insideCandidates = [];
+    let fbCounter = 1;
+
     for (const endpoint of mirrors) {
       try {
         const ctrl = new AbortController();
@@ -781,59 +812,64 @@ window.Kameen = window.Kameen || {};
         clearTimeout(tm);
         if (!res.ok) continue;
         const data = await res.json();
-        const seenNames = new Set();
-        const insideCandidates = [];
-        let fbCounter = 1;
 
         for (const el of (data.elements || [])) {
           if (el.tags && el.tags.access === "private") continue;
           const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
           const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
           if (typeof lat !== "number" || typeof lng !== "number") continue;
-
           if (K.Geo.distanceMeters(center, { lat, lng }) > radius * 0.94) continue;
 
-          const displayName = formatExactOutdoorPlaceName(el.tags || {}, lat, lng, fbCounter++);
+          const displayName = formatExactOutdoorPlaceName(el.tags || {}, fbCounter++);
           if (!displayName || displayName.length < 2) continue;
 
           const key = displayName.toLowerCase();
           if (seenNames.has(key)) continue;
           seenNames.add(key);
 
-          const kind = classifyOutdoorKind(el.tags || {});
+          const isStreet = Boolean(el.tags && el.tags.highway && !el.tags.amenity && !el.tags.leisure);
           insideCandidates.push({
             id: "osm-" + el.id,
             name: displayName,
-            category: kind === "outdoor_street" ? "street" : "landmark",
-            _kind: kind,
+            category: isStreet ? "street" : "landmark",
+            _fame: scoreFamousPlace(el.tags || {}),
             lat, lng,
             isReal: true,
           });
         }
 
-        if (insideCandidates.length >= 2) {
-          realPois = selectSpatiallyDistributedPOIs(insideCandidates, center, radius, TARGET_POIS);
-          break;
-        }
+        if (insideCandidates.length >= 2) break;
       } catch {}
     }
 
-    let finalPois = [...realPois];
+    // Background famous-place lookup for extra prominent spots inside the zone
+    const areaExtras = await fetchAreaFamousPlaces(center, radius);
+    for (const ax of areaExtras) {
+      const key = ax.name.toLowerCase();
+      if (!seenNames.has(key)) {
+        seenNames.add(key);
+        insideCandidates.push(ax);
+      }
+    }
+
+    let finalPois = insideCandidates.length >= 2
+      ? selectSpatiallyDistributedPOIs(insideCandidates, center, radius, TARGET_POIS)
+      : [];
+
     if (finalPois.length < TARGET_POIS) {
       const fillers = K.Geo.generateFallbackPOIs(center, radius, Math.random, TARGET_POIS);
       for (const fp of fillers) {
         if (finalPois.length >= TARGET_POIS) break;
-        const tooClose = finalPois.some((ex) => K.Geo.distanceMeters(ex, fp) < Math.max(15, radius * 0.12));
-        if (!tooClose) {
-          finalPois.push(fp);
-        }
+        const tooClose = finalPois.some((ex) => K.Geo.distanceMeters(ex, fp) < Math.max(18, radius * 0.14));
+        if (!tooClose) finalPois.push(fp);
       }
     }
 
     K.state.createForm.pois = finalPois.slice(0, TARGET_POIS);
-    K.state.createForm.poiSource = realPois.length > 0
-      ? `${realPois.length} مكان خارجي حقيقي`
-      : `${K.state.createForm.pois.length} مكان خارجي موزع على الزون`;
+    const realCount = K.state.createForm.pois.filter((p) => p.isReal).length;
+    K.state.createForm.poiSource = realCount > 0
+      ? `${realCount} مكان شهير وحقيقي في المنطقة`
+      : `${K.state.createForm.pois.length} مكان خارجي منظم على الزون`;
 
     if (applyToActiveEngine && K.state.engine) {
       K.state.engine.setPOIs(K.state.createForm.pois);
@@ -871,8 +907,14 @@ window.Kameen = window.Kameen || {};
     `;
 
     if (st.route === "create") {
-      const z = proj(st.createForm.center);
-      shapes += `<circle cx="${z.x}" cy="${z.y}" r="${st.createForm.radius * scale}" fill="rgba(239,35,60,0.14)" stroke="#EF233C" stroke-width="2.2"/>`;
+      const cPts = Array.isArray(st.createForm.customPoints) ? st.createForm.customPoints : [];
+      if (cPts.length >= 3) {
+        const polySvgPts = cPts.map((p) => { const pt = proj(p); return `${pt.x},${pt.y}`; }).join(" ");
+        shapes += `<polygon points="${polySvgPts}" fill="rgba(239,35,60,0.16)" stroke="#EF233C" stroke-width="2.4"/>`;
+      } else {
+        const z = proj(st.createForm.center);
+        shapes += `<circle cx="${z.x}" cy="${z.y}" r="${st.createForm.radius * scale}" fill="rgba(239,35,60,0.14)" stroke="#EF233C" stroke-width="2.2"/>`;
+      }
       const me = proj(st.gps.coords);
       shapes += `<g id="radar-heading-cone" data-cx="${me.x}" data-cy="${me.y}" style="opacity:${heading !== null ? 1 : 0};" transform="rotate(${heading || 0} ${me.x} ${me.y})">
         <path d="M ${me.x} ${me.y} L ${me.x - 16} ${me.y - 34} A 38 38 0 0 1 ${me.x + 16} ${me.y - 34} Z" fill="#38BDF8" opacity="0.35"/>
@@ -903,6 +945,16 @@ window.Kameen = window.Kameen || {};
           shapes += `<text x="${pt.x}" y="${pt.y - 11}" text-anchor="middle" fill="#E4E4EA" font-size="10" font-weight="800">${K.escHtml(p.name)}</text>`;
         });
       }
+      const latestPub = (vis.aiReports && vis.aiReports.length) ? vis.aiReports[vis.aiReports.length - 1] : null;
+      const latestPriv = (vis.privateIntel && vis.privateIntel.length) ? vis.privateIntel[vis.privateIntel.length - 1] : null;
+      const actA = (latestPub && latestPriv)
+        ? ((latestPriv.createdAtMs || 0) >= (latestPub.createdAtMs || 0) ? latestPriv : latestPub)
+        : (latestPriv || latestPub);
+      if (!isSpread && actA && actA.coords) {
+        const ap = proj(actA.coords);
+        shapes += `<circle cx="${ap.x}" cy="${ap.y}" r="8" fill="#F59E0B" stroke="#FFFFFF" stroke-width="2.5"/>`;
+        shapes += `<text x="${ap.x}" y="${ap.y - 12}" text-anchor="middle" fill="#FDE68A" font-size="11" font-weight="900">تحليل</text>`;
+      }
       const selfColor = !vis.self.alive ? "#94A3B8" : (vis.self.role === "IMPOSTER" ? "#EF233C" : "#38BDF8");
       shapes += `<g id="radar-heading-cone" data-cx="${sc.x}" data-cy="${sc.y}" style="opacity:${heading !== null ? 1 : 0};" transform="rotate(${heading || 0} ${sc.x} ${sc.y})">
         <path d="M ${sc.x} ${sc.y} L ${sc.x - 16} ${sc.y - 34} A 38 38 0 0 1 ${sc.x + 16} ${sc.y - 34} Z" fill="${selfColor}" opacity="0.35"/>
@@ -918,22 +970,62 @@ window.Kameen = window.Kameen || {};
     };
   }
 
-  function setZoneGeoJson(center, radiusMeters, nextCenter = null, nextRadiusMeters = null) {
+  function buildClosedPolygonRing(pts, clockwise = false) {
+    if (!Array.isArray(pts) || pts.length < 3) return null;
+    const ring = pts.map((p) => [p.lng, p.lat]);
+    ring.push([pts[0].lng, pts[0].lat]);
+    if (clockwise) {
+      // Ensure clockwise winding for GeoJSON Polygon hole
+      let area = 0;
+      for (let i = 0; i < ring.length - 1; i++) {
+        area += (ring[i + 1][0] - ring[i][0]) * (ring[i + 1][1] + ring[i][1]);
+      }
+      if (area < 0) ring.reverse();
+    }
+    return ring;
+  }
+
+  function setZoneGeoJson(center, radiusMeters, nextCenter = null, nextRadiusMeters = null, polygon = null, nextPolygon = null) {
     const map = K.state.glMap;
     if (!map || !styleReady) return;
-    const sig = `${center.lat.toFixed(5)},${center.lng.toFixed(5)},${Math.round(radiusMeters)}|` +
-      (nextCenter && nextRadiusMeters ? `${nextCenter.lat.toFixed(5)},${nextCenter.lng.toFixed(5)},${Math.round(nextRadiusMeters)}` : "");
+    const polySig = Array.isArray(polygon) && polygon.length
+      ? polygon.map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join(";")
+      : "";
+    const nextPolySig = Array.isArray(nextPolygon) && nextPolygon.length
+      ? nextPolygon.map((p) => `${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join(";")
+      : "";
+    const sig = `${center.lat.toFixed(5)},${center.lng.toFixed(5)},${Math.round(radiusMeters)}|${polySig}|` +
+      (nextCenter && nextRadiusMeters ? `${nextCenter.lat.toFixed(5)},${nextCenter.lng.toFixed(5)},${Math.round(nextRadiusMeters)}|${nextPolySig}` : "");
     if (sig === lastZoneSig) return;
     lastZoneSig = sig;
     const src = map.getSource("kameen-zone-src");
     if (!src) return;
 
     const worldOuter = [[-180, -85], [180, -85], [180, 85], [-180, 85], [-180, -85]];
+    const hasCustomPoly = Array.isArray(polygon) && polygon.length >= 3;
+    const safeHole = hasCustomPoly ? buildClosedPolygonRing(polygon, true) : createCircleRing(center, radiusMeters, 64, true);
+    const safeLine = hasCustomPoly ? buildClosedPolygonRing(polygon, false) : createCircleRing(center, radiusMeters, 64, false);
+
     const features = [
-      { type: "Feature", properties: { kind: "storm" }, geometry: { type: "Polygon", coordinates: [worldOuter, createCircleRing(center, radiusMeters, 64, true)] } },
-      { type: "Feature", properties: { kind: "safe_border" }, geometry: { type: "LineString", coordinates: createCircleRing(center, radiusMeters, 64, false) } },
+      { type: "Feature", properties: { kind: "storm" }, geometry: { type: "Polygon", coordinates: [worldOuter, safeHole] } },
+      { type: "Feature", properties: { kind: "safe_border" }, geometry: { type: "LineString", coordinates: safeLine } },
     ];
-    if (nextCenter && nextRadiusMeters) {
+
+    // If user is drawing 1 or 2 custom points before closing polygon, draw open preview line
+    if (Array.isArray(polygon) && polygon.length > 0 && polygon.length < 3) {
+      features.push({
+        type: "Feature", properties: { kind: "safe_border" },
+        geometry: { type: "LineString", coordinates: polygon.map((p) => [p.lng, p.lat]) },
+      });
+    }
+
+    const hasNextPoly = Array.isArray(nextPolygon) && nextPolygon.length >= 3;
+    if (hasNextPoly) {
+      features.push({
+        type: "Feature", properties: { kind: "next_zone" },
+        geometry: { type: "LineString", coordinates: buildClosedPolygonRing(nextPolygon, false) },
+      });
+    } else if (nextCenter && nextRadiusMeters) {
       features.push({
         type: "Feature", properties: { kind: "next_zone" },
         geometry: { type: "LineString", coordinates: createCircleRing(nextCenter, nextRadiusMeters, 56, false) },
@@ -967,36 +1059,41 @@ window.Kameen = window.Kameen || {};
     if (!map || !styleReady) return;
     const src = map.getSource("kameen-compass-src");
     if (!src) return;
-    const rOuter = Math.max(25, (radiusMeters || 200) * 0.82);
-    const rSub = rOuter * 0.72;
+    // Keep axis lines subtle & place direction labels cleanly around the inner-mid zone
+    const rLine = Math.max(20, Math.min((radiusMeters || 200) * 0.72, 160));
+    const rCard = Math.max(24, Math.min((radiusMeters || 200) * 0.62, 140));
+    const rDiag = Math.max(20, Math.min((radiusMeters || 200) * 0.48, 110));
     const dirs = [
-      { label: "↑ شمال", deg: 0, r: rOuter, color: "#F59E0B" },
-      { label: "↗ شمال شرق", deg: 45, r: rSub, color: "#94A3B8" },
-      { label: "شرق →", deg: 90, r: rOuter, color: "#F59E0B" },
-      { label: "↘ جنوب شرق", deg: 135, r: rSub, color: "#94A3B8" },
-      { label: "↓ جنوب", deg: 180, r: rOuter, color: "#F59E0B" },
-      { label: "↙ جنوب غرب", deg: 225, r: rSub, color: "#94A3B8" },
-      { label: "← غرب", deg: 270, r: rOuter, color: "#F59E0B" },
-      { label: "↖ شمال غرب", deg: 315, r: rSub, color: "#94A3B8" },
+      { label: "↑ شمال", deg: 0, r: rCard, rl: rLine, color: "#FBBF24" },
+      { label: "↗ شمال شرق", deg: 45, r: rDiag, rl: rLine * 0.78, color: "#94A3B8" },
+      { label: "شرق →", deg: 90, r: rCard, rl: rLine, color: "#FBBF24" },
+      { label: "↘ جنوب شرق", deg: 135, r: rDiag, rl: rLine * 0.78, color: "#94A3B8" },
+      { label: "↓ جنوب", deg: 180, r: rCard, rl: rLine, color: "#FBBF24" },
+      { label: "↙ جنوب غرب", deg: 225, r: rDiag, rl: rLine * 0.78, color: "#94A3B8" },
+      { label: "← غرب", deg: 270, r: rCard, rl: rLine, color: "#FBBF24" },
+      { label: "↖ شمال غرب", deg: 315, r: rDiag, rl: rLine * 0.78, color: "#94A3B8" },
     ];
+    const cosLat = Math.max(0.05, Math.cos((center.lat * Math.PI) / 180));
     const features = [];
     for (const d of dirs) {
       const rad = (d.deg * Math.PI) / 180;
-      const dLat = (d.r / EARTH_R) * (180 / Math.PI);
-      const cosLat = Math.max(0.05, Math.cos((center.lat * Math.PI) / 180));
-      const dLng = dLat / cosLat;
-      const endPt = [center.lng + Math.sin(rad) * dLng, center.lat + Math.cos(rad) * dLat];
+      const dLatL = (d.rl / EARTH_R) * (180 / Math.PI);
+      const dLngL = dLatL / cosLat;
+      const lineEnd = [center.lng + Math.sin(rad) * dLngL, center.lat + Math.cos(rad) * dLatL];
       if (d.deg % 90 === 0) {
         features.push({
           type: "Feature",
           properties: { kind: "axis" },
-          geometry: { type: "LineString", coordinates: [[center.lng, center.lat], endPt] },
+          geometry: { type: "LineString", coordinates: [[center.lng, center.lat], lineEnd] },
         });
       }
+      const dLatP = (d.r / EARTH_R) * (180 / Math.PI);
+      const dLngP = dLatP / cosLat;
+      const lblPt = [center.lng + Math.sin(rad) * dLngP, center.lat + Math.cos(rad) * dLatP];
       features.push({
         type: "Feature",
         properties: { kind: "dir_lbl", label: d.label, color: d.color },
-        geometry: { type: "Point", coordinates: endPt },
+        geometry: { type: "Point", coordinates: lblPt },
       });
     }
     src.setData({ type: "FeatureCollection", features });
@@ -1056,27 +1153,48 @@ window.Kameen = window.Kameen || {};
 
     if (st.route === "create") {
       const f = st.createForm;
-      setZoneGeoJson(f.center, f.radius, null, null);
+      const customPts = Array.isArray(f.customPoints) ? f.customPoints : [];
+      setZoneGeoJson(f.center, f.radius, null, null, customPts, null);
       setRouteGeoJson(null, null);
 
-      if (!reg.centerPin) {
-        reg.centerPin = new window.maplibregl.Marker({
-          element: makePinElement("kpin-center", "", "مركز الزون", "red"),
-          anchor: "bottom",
-        }).setLngLat([f.center.lng, f.center.lat]).addTo(st.glMap);
+      if (customPts.length > 0) {
+        if (reg.centerPin) { reg.centerPin.remove(); reg.centerPin = null; }
+        for (const zp of reg.zonePolyPins) zp.remove();
+        reg.zonePolyPins = [];
+        customPts.forEach((pt, idx) => {
+          const mk = new window.maplibregl.Marker({
+            element: makePinElement("kpin-poly-pt", String(idx + 1), `نقطة ${idx + 1}`, "gold"),
+            anchor: "center",
+          }).setLngLat([pt.lng, pt.lat]).addTo(st.glMap);
+          reg.zonePolyPins.push(mk);
+        });
       } else {
-        reg.centerPin.setLngLat([f.center.lng, f.center.lat]);
+        for (const zp of reg.zonePolyPins) zp.remove();
+        reg.zonePolyPins = [];
+        if (!reg.centerPin) {
+          reg.centerPin = new window.maplibregl.Marker({
+            element: makePinElement("kpin-center", "", "مركز الزون", "red"),
+            anchor: "bottom",
+          }).setLngLat([f.center.lng, f.center.lat]).addTo(st.glMap);
+        } else {
+          reg.centerPin.setLngLat([f.center.lng, f.center.lat]);
+        }
       }
 
       updateSelfMarkerOnMap(st.gps.coords, "#38BDF8");
       return;
     }
 
+    if (reg.zonePolyPins && reg.zonePolyPins.length) {
+      for (const zp of reg.zonePolyPins) zp.remove();
+      reg.zonePolyPins = [];
+    }
+
     if (!st.engine) return;
     const vis = st.engine.getVisibleStateForPlayer(st.user.id);
     const isSpread = vis.phase === "SPREAD";
 
-    setZoneGeoJson(vis.zone.center, vis.zone.currentRadiusMeters, vis.zone.nextCenter, vis.zone.nextRadiusMeters);
+    setZoneGeoJson(vis.zone.center, vis.zone.currentRadiusMeters, vis.zone.nextCenter, vis.zone.nextRadiusMeters, vis.zone.polygon, vis.zone.nextPolygon);
     setCompassOverlayGeoJson(vis.zone.center, vis.zone.currentRadiusMeters);
 
     if (isSpread) {
@@ -1089,16 +1207,25 @@ window.Kameen = window.Kameen || {};
     } else {
       const activeMission = vis.missions.find((m) => m.status === "in_progress");
 
+      // Keep zone map clean & uncluttered: show pin label on active mission + up to 2 closest pending POIs
+      const pendingSorted = vis.missions
+        .filter((m) => m.status === "pending")
+        .map((m) => ({ id: m.id, d: K.Geo.distanceMeters(vis.self.coords, { lat: m.poi.lat, lng: m.poi.lng }) }))
+        .sort((a, b) => a.d - b.d);
+      const labeledIds = new Set(pendingSorted.slice(0, 2).map((x) => x.id));
+      if (activeMission) labeledIds.add(activeMission.id);
+
       syncKeyedMarkers(
         reg.missions,
         vis.missions.map((m) => {
           const isAct = Boolean(activeMission && activeMission.id === m.id);
-          return { key: `${m.id}|${m.status}|${isAct ? 1 : 0}|${m.poi.name}`, m, isAct };
+          const showLbl = m.status !== "completed" && labeledIds.has(m.id);
+          return { key: `${m.id}|${m.status}|${isAct ? 1 : 0}|${showLbl ? 1 : 0}|${m.poi.name}`, m, isAct, showLbl };
         }),
-        ({ m, isAct }) => {
+        ({ m, isAct, showLbl }) => {
           const cls = m.status === "completed" ? "kpin-mission done" : (isAct ? "kpin-mission active" : "kpin-mission");
           const ico = m.status === "completed" ? "✓" : (isAct ? "★" : "");
-          const lbl = m.status === "completed" ? "" : m.poi.name;
+          const lbl = showLbl ? m.poi.name : "";
           return new window.maplibregl.Marker({
             element: makePinElement(cls, ico, lbl, isAct ? "gold" : ""),
             anchor: "bottom",

@@ -55,6 +55,8 @@ window.Kameen = window.Kameen || {};
       revealMode: K.GAME_CONSTANTS.DEFAULT_REVEAL_MODE,
       pois: [],
       poiSource: null,
+      customZoneMode: false,
+      customPoints: [],
     },
     lobby: null,
     joinCode: "",
@@ -249,10 +251,30 @@ window.Kameen = window.Kameen || {};
     }
     if (st.route === "create") {
       st.gps.userPickedZone = true;
-      st.createForm.center = clicked;
-      void K.Map.fetchOverpassPOIs(clicked, st.createForm.radius);
-      K.Map.updateLayers();
-      K.showToast("تم تحريك مركز الزون");
+      if (st.createForm.customZoneMode) {
+        if (!Array.isArray(st.createForm.customPoints)) st.createForm.customPoints = [];
+        if (st.createForm.customPoints.length >= 16) {
+          return K.showToast("الحد الأقصى 16 نقطة لتحديد الزون");
+        }
+        st.createForm.customPoints.push({ lat: clicked.lat, lng: clicked.lng });
+        const nPts = st.createForm.customPoints.length;
+        if (nPts >= 3) {
+          const cent = K.Geo.getPolygonCentroid(st.createForm.customPoints) || clicked;
+          const rad = K.Geo.getPolygonRadiusMeters(st.createForm.customPoints, cent) || st.createForm.radius;
+          st.createForm.center = cent;
+          st.createForm.radius = rad;
+          void K.Map.fetchOverpassPOIs(cent, rad);
+        }
+        K.SFX.play("click");
+        K.Map.updateLayers();
+        K.UI.updateHudOnly();
+        K.showToast(nPts < 3 ? `تم إضافة نقطة ${nPts} (أضف ${3 - nPts} نقاط كمان لقفل الزون)` : `تم تحديث حدود الزون بـ ${nPts} نقاط`);
+      } else {
+        st.createForm.center = clicked;
+        void K.Map.fetchOverpassPOIs(clicked, st.createForm.radius);
+        K.Map.updateLayers();
+        K.showToast("تم تحريك مركز الزون");
+      }
     } else if (st.route === "simulation" && st.engine) {
       if (st.simUseRealGps) {
         st.simUseRealGps = false;
@@ -476,7 +498,7 @@ window.Kameen = window.Kameen || {};
         res = st.engine.requestBoldHint(playerId);
         if (res.ok && res.meta) {
           const aiHint = await K.AI.callGroqChat(
-            "أنت المحلل الخاص في لعبة كمين. اكتب جملة واحدة دقيقة ومشوقة بالعامية المصرية بدون ذكر أسماء لاعبين.",
+            "أنت المحلل الخاص في لعبة كمين. اكتب جملة واحدة واضحة ومباشرة بالعامية المصرية تذكر فيها المكان والاتجاه والمسافة بدقة بدون كلام غامض.",
             `اكتب تلميح سري خاص يقول إن الغدّار موجود ${res.meta.place} على بُعد حوالي ${res.meta.dist} متر ناحية الـ${res.meta.dir}.`
           );
           if (aiHint) {
@@ -489,7 +511,7 @@ window.Kameen = window.Kameen || {};
         res = st.engine.requestPrivateProfile(playerId, t);
         if (res.ok && res.meta) {
           const aiProf = await K.AI.callGroqChat(
-            "أنت المحلل السلوكي الخاص في لعبة كمين. اكتب تحليل استنتاجي ذكي ودقيق في جملتين قصار بالعامية المصرية بدون أسماء لاعبين.",
+            "أنت المحلل السلوكي الخاص في لعبة كمين. اكتب تحليلاً واضحاً ومباشراً في جملتين قصار بالعامية المصرية يذكر المكان والاتجاه والسبب السلوكي بدقة بدون أسماء لاعبين.",
             `اكتب تحليل خاص عن سلوك مريب رصدناه ${res.meta.place} على بُعد ${res.meta.dist}م ناحية الـ${res.meta.dir}، الملاحظة السلوكية الحقيقية: ${res.meta.behaviorClue}.`
           );
           if (aiProf) {
@@ -848,6 +870,71 @@ window.Kameen = window.Kameen || {};
     }
   };
 
+
+  window.onToggleCustomZoneMode = () => {
+    const f = K.state.createForm;
+    K.SFX.play("click");
+    f.customZoneMode = !f.customZoneMode;
+    if (f.customZoneMode && (!Array.isArray(f.customPoints) || f.customPoints.length === 0)) {
+      const c = f.center || K.state.gps.coords;
+      const d = Math.max(45, Math.min(f.radius || 180, 260)) * 0.65;
+      // Start with a clean customizable 4-point quadrilateral around current center so user can add/undo/clear right away
+      f.customPoints = [
+        K.Geo.offsetCoordinates(c, d, -d),
+        K.Geo.offsetCoordinates(c, d, d),
+        K.Geo.offsetCoordinates(c, -d, d),
+        K.Geo.offsetCoordinates(c, -d, -d),
+      ].map((pt) => ({ lat: pt.lat, lng: pt.lng }));
+      const cent = K.Geo.getPolygonCentroid(f.customPoints) || c;
+      const rad = K.Geo.getPolygonRadiusMeters(f.customPoints, cent) || f.radius;
+      f.center = cent;
+      f.radius = rad;
+      void K.Map.fetchOverpassPOIs(cent, rad);
+    }
+    K.Map.updateLayers();
+    K.UI.updateHudOnly();
+    K.showToast(f.customZoneMode ? "وضع تخصيص النقاط شغال — اضغط ع الخريطة لإضافة نقطة" : "تم الرجوع للوضع العادي");
+  };
+
+  window.onUndoCustomZonePoint = () => {
+    const f = K.state.createForm;
+    if (!Array.isArray(f.customPoints) || !f.customPoints.length) return;
+    K.SFX.play("click");
+    f.customPoints.pop();
+    if (f.customPoints.length >= 3) {
+      const cent = K.Geo.getPolygonCentroid(f.customPoints) || f.center;
+      const rad = K.Geo.getPolygonRadiusMeters(f.customPoints, cent) || f.radius;
+      f.center = cent;
+      f.radius = rad;
+      void K.Map.fetchOverpassPOIs(cent, rad);
+    }
+    K.Map.updateLayers();
+    K.UI.updateHudOnly();
+    K.showToast("تم حذف آخر نقطة");
+  };
+
+  window.onClearCustomZonePoints = () => {
+    const f = K.state.createForm;
+    K.SFX.play("click");
+    f.customPoints = [];
+    f.customZoneMode = true;
+    K.Map.updateLayers();
+    K.UI.updateHudOnly();
+    K.showToast("تم مسح النقاط — اضغط على الخريطة لوضع النقطة الأولى");
+  };
+
+  window.onUseCircleZoneInstead = () => {
+    const f = K.state.createForm;
+    K.SFX.play("click");
+    f.customPoints = [];
+    f.customZoneMode = false;
+    f.radius = 250;
+    void K.Map.fetchOverpassPOIs(f.center, f.radius);
+    K.Map.updateLayers();
+    K.UI.updateHudOnly();
+    K.showToast("تم ضبط زون دائرية 250م");
+  };
+
   window.onCreateMatch = () => {
     const st = K.state;
     K.SFX.play("click");
@@ -856,12 +943,16 @@ window.Kameen = window.Kameen || {};
     const pois = st.createForm.pois.length >= 3
       ? st.createForm.pois
       : K.Geo.generateFallbackPOIs(st.createForm.center, st.createForm.radius);
+    const polyToUse = (Array.isArray(st.createForm.customPoints) && st.createForm.customPoints.length >= 3)
+      ? st.createForm.customPoints.map((pt) => ({ lat: pt.lat, lng: pt.lng }))
+      : null;
     st.lobby = {
       matchId, code,
       title: st.createForm.title || "كمين الشلة",
       hostId: st.user.id,
       center: st.createForm.center,
       radius: st.createForm.radius,
+      polygon: polyToUse,
       duration: st.createForm.duration,
       spreadSeconds: st.createForm.spreadSeconds,
       imposters: st.createForm.imposters,
@@ -952,6 +1043,7 @@ window.Kameen = window.Kameen || {};
     st.engine = new K.KameenEngine({
       matchId: st.lobby.matchId, code: st.lobby.code, hostId: st.lobby.hostId,
       title: st.lobby.title, zoneCenter: st.lobby.center, zoneRadiusMeters: st.lobby.radius,
+      zonePolygon: st.lobby.polygon || null,
       durationMinutes: st.lobby.duration, spreadSeconds: st.lobby.spreadSeconds ?? 60,
       imposterCount: st.lobby.imposters,
       revealIntervalSec: st.lobby.revealIntervalSec || 120,

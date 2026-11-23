@@ -19,7 +19,60 @@ window.Kameen = window.Kameen || {};
     return 2 * EARTH_RADIUS_M * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
   }
 
-  function isInsideZone(pt, center, r) {
+  function pointInPolygon(pt, polygon) {
+    if (!Array.isArray(polygon) || polygon.length < 3) return false;
+    const x = pt.lng;
+    const y = pt.lat;
+    let inside = false;
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i].lng, yi = polygon[i].lat;
+      const xj = polygon[j].lng, yj = polygon[j].lat;
+      const intersect = ((yi > y) !== (yj > y)) &&
+        (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-12) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function getPolygonCentroid(polygon) {
+    if (!Array.isArray(polygon) || !polygon.length) return null;
+    let sumLat = 0, sumLng = 0;
+    for (const p of polygon) { sumLat += p.lat; sumLng += p.lng; }
+    return { lat: sumLat / polygon.length, lng: sumLng / polygon.length };
+  }
+
+  function getPolygonRadiusMeters(polygon, centroid) {
+    if (!Array.isArray(polygon) || polygon.length < 3) return null;
+    const c = centroid || getPolygonCentroid(polygon);
+    let maxD = 30;
+    for (const p of polygon) {
+      const d = distanceMeters(c, p);
+      if (d > maxD) maxD = d;
+    }
+    return Math.round(maxD);
+  }
+
+  function scalePolygonAroundCentroid(polygon, scaleFactor) {
+    const c = getPolygonCentroid(polygon);
+    if (!c || !Array.isArray(polygon)) return polygon || [];
+    return polygon.map((p) => ({
+      lat: c.lat + (p.lat - c.lat) * scaleFactor,
+      lng: c.lng + (p.lng - c.lng) * scaleFactor,
+    }));
+  }
+
+  function isPointInZoneObj(pt, zoneObj) {
+    if (!zoneObj) return true;
+    if (Array.isArray(zoneObj.polygon) && zoneObj.polygon.length >= 3) {
+      return pointInPolygon(pt, zoneObj.polygon);
+    }
+    return distanceMeters(pt, zoneObj.center) <= zoneObj.currentRadiusMeters;
+  }
+
+  function isInsideZone(pt, center, r, polygon = null) {
+    if (Array.isArray(polygon) && polygon.length >= 3) {
+      return pointInPolygon(pt, polygon);
+    }
     return distanceMeters(pt, center) <= r;
   }
 
@@ -74,7 +127,15 @@ window.Kameen = window.Kameen || {};
     };
   }
 
-  function randomPointInZone(center, r, rng = Math.random, maxFrac = 0.76) {
+  function randomPointInZone(center, r, rng = Math.random, maxFrac = 0.76, polygon = null) {
+    if (Array.isArray(polygon) && polygon.length >= 3) {
+      const c = getPolygonCentroid(polygon) || center;
+      for (let attempt = 0; attempt < 28; attempt++) {
+        const pt = randomPointInZone(c, r, rng, maxFrac, null);
+        if (pointInPolygon(pt, polygon)) return pt;
+      }
+      return { ...c, accuracyMeters: 5 };
+    }
     const dist = Math.sqrt(rng()) * r * maxFrac;
     const theta = rng() * Math.PI * 2;
     return offsetCoordinates(center, Math.cos(theta) * dist, Math.sin(theta) * dist);
@@ -328,8 +389,10 @@ window.Kameen = window.Kameen || {};
     };
   }
 
-  function generatePlayerMissions(playerId, role, playerCoords, pois, center, radiusMeters, rng) {
-    const poolPOIs = pois && pois.length >= 3 ? [...pois] : generateFallbackPOIs(center, radiusMeters, rng);
+  function generatePlayerMissions(playerId, role, playerCoords, pois, center, radiusMeters, rng, polygon = null) {
+    const rawPool = pois && pois.length >= 3 ? pois : generateFallbackPOIs(center, radiusMeters, rng);
+    const insidePool = rawPool.filter((p) => polygon && polygon.length >= 3 ? pointInPolygon({ lat: p.lat, lng: p.lng }, polygon) : distanceMeters(center, { lat: p.lat, lng: p.lng }) <= radiusMeters * 0.90);
+    const poolPOIs = insidePool.length >= 3 ? [...insidePool] : [...rawPool];
     const tplSource = role === "IMPOSTER" ? IMPOSTER_COVER_MISSIONS : INVESTIGATOR_MISSIONS;
     const selectedPOIs = [];
     const availPOIs = [...poolPOIs];
@@ -390,11 +453,16 @@ window.Kameen = window.Kameen || {};
 
       const activePlayerIds = lobbyPlayers.filter((p) => !p.isSpectator).map((p) => p.id);
       const roles = this.assignRolesFairly(activePlayerIds, config.imposterCount);
-      const nextZoneCenter = this.computeNextZoneCenter(config.zoneCenter, config.zoneRadiusMeters);
-      const nextZoneRadius = Math.round(config.zoneRadiusMeters * C.ZONE_SHRINK_FACTOR);
+      const hasPoly = Array.isArray(config.zonePolygon) && config.zonePolygon.length >= 3;
+      const initPoly = hasPoly ? config.zonePolygon.map((pt) => ({ lat: pt.lat, lng: pt.lng })) : null;
+      const effCenter = hasPoly ? (getPolygonCentroid(initPoly) || config.zoneCenter) : config.zoneCenter;
+      const effRadius = hasPoly ? (getPolygonRadiusMeters(initPoly, effCenter) || config.zoneRadiusMeters) : config.zoneRadiusMeters;
+      const nextZoneCenter = this.computeNextZoneCenter(effCenter, effRadius);
+      const nextZoneRadius = Math.max(25, Math.round(effRadius * C.ZONE_SHRINK_FACTOR));
+      const nextZonePolygon = hasPoly ? scalePolygonAroundCentroid(initPoly, C.ZONE_SHRINK_FACTOR) : null;
       const zonePois = (config.pois && config.pois.length >= 2)
         ? config.pois.map((p) => ({ ...p }))
-        : generateFallbackPOIs(config.zoneCenter, config.zoneRadiusMeters, this.rng);
+        : generateFallbackPOIs(effCenter, effRadius, this.rng);
       const players = {};
       const missions = {};
       let initialInvCount = 0;
@@ -404,8 +472,8 @@ window.Kameen = window.Kameen || {};
         const role = isSpec ? "SPECTATOR" : (roles[lp.id] ?? "INVESTIGATOR");
         if (role === "INVESTIGATOR") initialInvCount += 1;
         let coords = lp.coords;
-        if (!coords || !isInsideZone(coords, config.zoneCenter, config.zoneRadiusMeters * 0.9)) {
-          coords = randomPointInZone(config.zoneCenter, config.zoneRadiusMeters, this.rng, 0.3);
+        if (!coords || !isInsideZone(coords, effCenter, effRadius * 0.9, initPoly)) {
+          coords = randomPointInZone(effCenter, effRadius, this.rng, 0.35, initPoly);
         }
         players[lp.id] = {
           id: lp.id, name: lp.name, isBot: Boolean(lp.isBot), isHost: Boolean(lp.isHost), isReady: true,
@@ -427,7 +495,7 @@ window.Kameen = window.Kameen || {};
         missions[lp.id] = isSpec
           ? []
           : generatePlayerMissions(
-              lp.id, role, coords, zonePois, config.zoneCenter, config.zoneRadiusMeters, this.rng
+              lp.id, role, coords, zonePois, effCenter, effRadius, this.rng, initPoly
             );
       });
 
@@ -466,11 +534,14 @@ window.Kameen = window.Kameen || {};
         investigationGoal: missionGoal,
         pois: zonePois,
         zone: {
-          center: config.zoneCenter,
-          initialRadiusMeters: config.zoneRadiusMeters,
-          currentRadiusMeters: config.zoneRadiusMeters,
+          center: effCenter,
+          initialRadiusMeters: effRadius,
+          currentRadiusMeters: effRadius,
+          polygon: initPoly,
+          initialPolygon: initPoly ? initPoly.map((pt) => ({ ...pt })) : null,
           nextCenter: nextZoneCenter,
           nextRadiusMeters: nextZoneRadius,
+          nextPolygon: nextZonePolygon,
           shrinkCount: 0,
           nextShrinkAtActiveMs: C.ZONE_SHRINK_INTERVAL_MS,
         },
@@ -554,12 +625,17 @@ window.Kameen = window.Kameen || {};
     setPOIs(newPois) {
       if (!newPois || !newPois.length) return;
       this.state.pois = newPois.map((p) => ({ ...p }));
+      const zCenter = this.state.zone.center;
+      const zRad = this.state.zone.currentRadiusMeters;
+      const zPoly = this.state.zone.polygon;
+      const insidePois = this.state.pois.filter((p) => zPoly && zPoly.length >= 3 ? pointInPolygon({ lat: p.lat, lng: p.lng }, zPoly) : distanceMeters(zCenter, { lat: p.lat, lng: p.lng }) <= zRad * 0.90);
+      const pool = insidePois.length >= 2 ? insidePois : this.state.pois;
       const allTpls = [...INVESTIGATOR_MISSIONS, ...IMPOSTER_COVER_MISSIONS];
       let idx = 0;
       for (const list of Object.values(this.state.missions)) {
         for (const m of list) {
           if (m.status === "pending") {
-            const poi = this.state.pois[idx % this.state.pois.length];
+            const poi = pool[idx % pool.length];
             idx += 1;
             const tpl = allTpls.find((t) => t.type === m.type);
             m.poi = { ...poi };
@@ -917,7 +993,7 @@ window.Kameen = window.Kameen || {};
 
     spawnAirdrop(nowMs = this.state.nowMs) {
       if (this.state.phase !== "ACTIVE") return;
-      const coords = randomPointInZone(this.state.zone.center, this.state.zone.currentRadiusMeters, this.rng, 0.65);
+      const coords = randomPointInZone(this.state.zone.center, this.state.zone.currentRadiusMeters, this.rng, 0.65, this.state.zone.polygon);
       const place = getNearbyPlaceLabel(coords, this.state.pois);
       this.state.activeAirdrop = {
         id: this.nextEventId("drop"),
@@ -990,8 +1066,9 @@ window.Kameen = window.Kameen || {};
     relocateMissionsInsideZone(nowMs = this.state.nowMs) {
       const zCenter = this.state.zone.center;
       const zRad = this.state.zone.currentRadiusMeters;
+      const zPoly = this.state.zone.polygon;
       const safePois = (this.state.pois || []).filter(
-        (p) => distanceMeters(zCenter, { lat: p.lat, lng: p.lng }) <= zRad * 0.90
+        (p) => zPoly && zPoly.length >= 3 ? pointInPolygon({ lat: p.lat, lng: p.lng }, zPoly) : distanceMeters(zCenter, { lat: p.lat, lng: p.lng }) <= zRad * 0.90
       );
       const allTpls = [...INVESTIGATOR_MISSIONS, ...IMPOSTER_COVER_MISSIONS];
       let movedCount = 0;
@@ -1000,14 +1077,14 @@ window.Kameen = window.Kameen || {};
         const player = this.state.players[pid];
         if (!player || !player.alive) continue;
         const usedIds = new Set(
-          list.filter((m) => m.status !== "completed" && m.poi && distanceMeters(zCenter, m.poi) <= zRad * 0.92)
+          list.filter((m) => m.status !== "completed" && m.poi && (zPoly && zPoly.length >= 3 ? pointInPolygon(m.poi, zPoly) : distanceMeters(zCenter, m.poi) <= zRad * 0.92))
             .map((m) => m.poi.id)
         );
 
         for (const m of list) {
           if (m.status === "completed") continue;
-          const distFromCenter = m.poi ? distanceMeters(zCenter, { lat: m.poi.lat, lng: m.poi.lng }) : Infinity;
-          if (distFromCenter <= zRad * 0.92) continue;
+          const isSafePoi = m.poi ? (zPoly && zPoly.length >= 3 ? pointInPolygon({ lat: m.poi.lat, lng: m.poi.lng }, zPoly) : distanceMeters(zCenter, { lat: m.poi.lat, lng: m.poi.lng }) <= zRad * 0.92) : false;
+          if (isSafePoi) continue;
 
           // Mission POI is now outside the shrinking zone — automatically redirect to a real POI still inside!
           let nextPoi = null;
@@ -1018,7 +1095,7 @@ window.Kameen = window.Kameen || {};
             nextPoi = safePois[Math.floor(this.rng() * safePois.length)];
           } else {
             // Very small final zone: snap inside safe zone relative to nearest real landmark
-            const pt = randomPointInZone(zCenter, zRad, this.rng, 0.55);
+            const pt = randomPointInZone(zCenter, zRad, this.rng, 0.55, zPoly);
             const nearReal = getNearestPOI(pt, this.state.pois);
             nextPoi = {
               id: "safe-" + this.nextEventId("poi"),
@@ -1045,11 +1122,15 @@ window.Kameen = window.Kameen || {};
     }
 
     shrinkZone(nowMs = this.state.nowMs) {
+      if (Array.isArray(this.state.zone.nextPolygon) && this.state.zone.nextPolygon.length >= 3) {
+        this.state.zone.polygon = this.state.zone.nextPolygon.map((pt) => ({ ...pt }));
+        this.state.zone.nextPolygon = scalePolygonAroundCentroid(this.state.zone.polygon, C.ZONE_SHRINK_FACTOR);
+      }
       this.state.zone.center = this.state.zone.nextCenter;
       this.state.zone.currentRadiusMeters = this.state.zone.nextRadiusMeters;
       this.state.zone.shrinkCount += 1;
       this.state.zone.nextCenter = this.computeNextZoneCenter(this.state.zone.center, this.state.zone.currentRadiusMeters);
-      this.state.zone.nextRadiusMeters = Math.max(30, Math.round(this.state.zone.currentRadiusMeters * C.ZONE_SHRINK_FACTOR));
+      this.state.zone.nextRadiusMeters = Math.max(25, Math.round(this.state.zone.currentRadiusMeters * C.ZONE_SHRINK_FACTOR));
       const moved = this.relocateMissionsInsideZone(nowMs);
       const extra = moved > 0 ? " • وتم تحويل المهام تلقائياً لأماكن جوه الزون الجديد!" : "";
       this.pushEvent("ZONE_SHRUNK", `⭕ الزون قفلت 25%! دلوقتي نص القطر ${this.state.zone.currentRadiusMeters}م${extra}`, nowMs);
@@ -1058,7 +1139,7 @@ window.Kameen = window.Kameen || {};
     evaluateZoneBoundary(nowMs) {
       let someoneEliminated = false;
       for (const player of this.getLivingPlayers()) {
-        const inside = isInsideZone(player.coords, this.state.zone.center, this.state.zone.currentRadiusMeters);
+        const inside = isInsideZone(player.coords, this.state.zone.center, this.state.zone.currentRadiusMeters, this.state.zone.polygon);
         if (inside) {
           player.outsideZoneSinceMs = null;
         } else {
@@ -1092,7 +1173,7 @@ window.Kameen = window.Kameen || {};
       if (movedM > 2.5) player.stationarySeconds = 0;
 
       if (this.state.phase === "ACTIVE" && this.state.activeElapsedMs >= 5000 && player.alive) {
-        const inside = isInsideZone(coords, this.state.zone.center, this.state.zone.currentRadiusMeters);
+        const inside = isInsideZone(coords, this.state.zone.center, this.state.zone.currentRadiusMeters, this.state.zone.polygon);
         if (inside) player.outsideZoneSinceMs = null;
         else if (player.outsideZoneSinceMs === null) player.outsideZoneSinceMs = nowMs;
       }
@@ -1419,11 +1500,13 @@ window.Kameen = window.Kameen || {};
       p.points -= C.BOLD_HINT_COST;
       const imp = this.getLivingPlayers().find((x) => x.role === "IMPOSTER" && x.id !== playerId);
       if (!imp) return { ok: true, intelText: "🔥 مفيش خطر دلوقتي في الميدان!" };
+      const nearPoi = getNearestPOI(imp.coords, this.state.pois);
+      const exactAnchor = nearPoi ? nearPoi.poi : imp.coords;
       const place = getNearbyPlaceLabel(imp.coords, this.state.pois);
       const dist = Math.round(distanceMeters(p.coords, imp.coords));
       const dir = getArabicDirection(p.coords, imp.coords);
-      const intelText = `تلميح مباشر: الغدّار حالياً ${place}.. بينه وبينك حوالي ${dist}م ناحية الـ${dir}.`;
-      const saved = this.addPrivateIntel(playerId, "BOLD_HINT", "تلميح مباشر للغدّار", intelText, C.BOLD_HINT_COST, "radar", this.state.nowMs, imp.coords);
+      const intelText = `تلميح مباشر: الغدّار حالياً ${place} (على بُعد ${dist}م ناحية الـ${dir} — العلامة «تحليل» ع الخريطة متجهة للمكان ده).`;
+      const saved = this.addPrivateIntel(playerId, "BOLD_HINT", "تلميح مباشر للغدّار", intelText, C.BOLD_HINT_COST, "radar", this.state.nowMs, exactAnchor);
       return { ok: true, intelId: saved.id, intelText, meta: { place, dist, dir } };
     }
 
@@ -1504,7 +1587,7 @@ window.Kameen = window.Kameen || {};
       if (m.status === "completed") return { ok: false, error: "خلصتها قبل كده" };
 
       if (m.anywhereInZone) {
-        const inside = isInsideZone(p.coords, this.state.zone.center, this.state.zone.currentRadiusMeters + 15);
+        const inside = isInsideZone(p.coords, this.state.zone.center, this.state.zone.currentRadiusMeters + 15, this.state.zone.polygon);
         if (!inside) return { ok: false, error: "لازم تكون جوه دايرة الزون عشان توثّق المهمة!" };
       } else {
         const dist = distanceMeters(p.coords, { lat: m.poi.lat, lng: m.poi.lng });
@@ -1607,8 +1690,10 @@ window.Kameen = window.Kameen || {};
       else if (speedKmh >= 7) behaviorClue = `بيتحرك بسرعة عالية (${speedKmh} كم/س)`;
       else behaviorClue = "عمال يلف ويتنقل حوالين المنطقة بهدوء مريب";
 
-      const fallbackText = `تحليل خاص: رصدنا سلوك مريب ${place} (حوالي ${dist}م ناحية الـ${dir} منك) — اللاعب ده ${behaviorClue}. راقب مين كان هناك!`;
-      const saved = this.addPrivateIntel(playerId, "PRIVATE_PROFILE", "تحليل سلوكي خاص", fallbackText, cost, "radar", nowMs, target.coords);
+      const nearTgtPoi = getNearestPOI(target.coords, this.state.pois);
+      const tgtAnchor = nearTgtPoi ? nearTgtPoi.poi : target.coords;
+      const fallbackText = `تحليل خاص: رصدنا سلوك مريب ${place} (${dist}م ناحية الـ${dir}) — اللاعب ده ${behaviorClue}.`;
+      const saved = this.addPrivateIntel(playerId, "PRIVATE_PROFILE", "تحليل سلوكي خاص", fallbackText, cost, "radar", nowMs, tgtAnchor);
       return {
         ok: true,
         intelId: saved.id,
@@ -1907,7 +1992,7 @@ window.Kameen = window.Kameen || {};
       }
     }
     for (const bot of bots) {
-      if (!isInsideZone(bot.coords, snap.zone.center, snap.zone.currentRadiusMeters * 0.8)) {
+      if (!isInsideZone(bot.coords, snap.zone.center, snap.zone.currentRadiusMeters * 0.8, snap.zone.polygon)) {
         engine.updatePlayerLocation(bot.id, moveTowards(bot.coords, snap.zone.center, stepMeters * 1.4), nowMs);
         continue;
       }
@@ -1981,6 +2066,10 @@ window.Kameen = window.Kameen || {};
     offsetCoordinates,
     createSeededRng,
     randomPointInZone,
+    pointInPolygon,
+    getPolygonCentroid,
+    getPolygonRadiusMeters,
+    scalePolygonAroundCentroid,
     generateFallbackPOIs,
   };
   K.KameenEngine = KameenEngine;

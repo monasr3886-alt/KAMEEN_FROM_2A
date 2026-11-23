@@ -332,29 +332,45 @@ window.Kameen = window.Kameen || {};
         `;
       }
 
-      if (botEl.dataset.dockMode !== "create") {
-        botEl.dataset.dockMode = "create";
-        botEl.innerHTML = `
-          <div class="hud-panel" style="display:flex;flex-direction:column;gap:10px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <div class="eyebrow">ZONE RADIUS &amp; RADAR PING</div>
-                <div id="create-radius-lbl" style="font-size:13px;font-weight:900;">نصف القطر <span style="color:var(--crimson);" class="mono">${f.radius}m</span> • رصد كل ${formatRevealLabel(f.revealIntervalSec)}</div>
+      const ptsArr = Array.isArray(f.customPoints) ? f.customPoints : [];
+      const isPolyActive = f.customZoneMode || ptsArr.length >= 3;
+      const createPanelHtml = `
+        <div class="hud-panel" style="display:flex;flex-direction:column;gap:8px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <div style="min-width:0;">
+              <div class="eyebrow">HIDEZONE CUSTOM POINTS</div>
+              <div id="create-radius-lbl" style="font-size:12.5px;font-weight:900;">
+                ${isPolyActive
+                  ? `زون مخصصة (${ptsArr.length} نقاط • ≈<span style="color:var(--crimson);" class="mono">${f.radius}m</span>)`
+                  : `نصف القطر <span style="color:var(--crimson);" class="mono">${f.radius}m</span> • رصد كل ${formatRevealLabel(f.revealIntervalSec)}`}
               </div>
+            </div>
+            <div style="display:flex;gap:5px;flex-shrink:0;">
+              <button class="btn ${isPolyActive ? "btn-primary" : "btn-outline"} btn-xs" onclick="onToggleCustomZoneMode()">
+                ${isPolyActive ? "إضافة نقاط" : "تخصيص نقاط"}
+              </button>
               <button class="btn btn-outline btn-xs" onclick="onOpenModal('game_settings')">الإعدادات</button>
             </div>
+          </div>
+          ${isPolyActive ? `
+            <div style="font-size:11px;color:var(--muted);font-weight:700;">
+              اضغط على الخريطة لإضافة نقطة جديدة للزون (لازم 3 نقاط على الأقل).
+            </div>
+            <div class="grid-3">
+              <button class="btn btn-outline btn-xs" onclick="onUndoCustomZonePoint()">تراجع عن نقطة</button>
+              <button class="btn btn-outline btn-xs" onclick="onClearCustomZonePoints()">مسح النقاط</button>
+              <button class="btn btn-muted btn-xs" onclick="onUseCircleZoneInstead()">دائرة</button>
+            </div>
+          ` : `
             <input id="create-radius-slider" type="range" min="100" max="800" step="25" value="${f.radius}" style="width:100%;accent-color:var(--crimson);"
               oninput="onRadiusSlide(this.value)"
               onchange="void Kameen.Map.fetchOverpassPOIs(Kameen.state.createForm.center, Kameen.state.createForm.radius)" />
-            <button class="btn btn-primary" style="width:100%;padding:13px;" onclick="onCreateMatch()">إنشاء الغرفة ودعوة اللاعبين</button>
-          </div>
-        `;
-      } else {
-        const lbl = document.getElementById("create-radius-lbl");
-        if (lbl) {
-          setHtmlIfChanged(lbl, `نصف القطر <span style="color:var(--crimson);" class="mono">${f.radius}m</span> • رصد كل ${formatRevealLabel(f.revealIntervalSec)}`);
-        }
-      }
+          `}
+          <button class="btn btn-primary" style="width:100%;padding:12px;" onclick="onCreateMatch()">إنشاء الغرفة ودعوة اللاعبين</button>
+        </div>
+      `;
+      botEl.dataset.dockMode = "create";
+      setHtmlIfChanged(botEl, createPanelHtml);
       return;
     }
 

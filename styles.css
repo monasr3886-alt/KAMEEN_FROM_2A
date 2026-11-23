@@ -1499,3 +1499,10 @@ body.anchor-calibrating #persistent-gl-map { cursor: crosshair !important; }
   color: #09090B;
   border: 2.5px solid #FFFFFF;
 }
+.kpin-poly-pt {
+  width: 22px; height: 22px;
+  background: var(--amber);
+  color: #09090B;
+  border: 2px solid #FFFFFF;
+  font-size: 11px;
+}
