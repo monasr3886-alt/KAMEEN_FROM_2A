@@ -871,7 +871,7 @@ window.Kameen = window.Kameen || {};
           ${vis.self.alive ? `
             <div style="display:flex;gap:5px;overflow-x:auto;padding:8px 0;">
               ${K.QUICK_CHAT_LINES.map((q) =>
-                <button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickMeetingChat('${esc(q)}')">${esc(q)}</button>
+                `<button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickMeetingChat('${esc(q)}')">${esc(q)}</button>`
               ).join("")}
             </div>
             <div style="display:flex;gap:6px;">
@@ -1897,7 +1897,7 @@ window.Kameen = window.Kameen || {};
         ${canSend ? `
           <div class="chat-quick-strip">
             ${quickLines.map((q) =>
-              <button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickLiveChat('${esc(q)}')">${esc(q)}</button>
+              `<button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickLiveChat('${esc(q)}')">${esc(q)}</button>`
             ).join("")}
           </div>
           <div class="chat-composer">
