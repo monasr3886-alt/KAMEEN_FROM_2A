@@ -247,8 +247,7 @@ window.Kameen = window.Kameen || {};
       return `
         <div class="hud-ticker">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${locTxt}</span>
-          ${canProof
-            ? `<button class="btn btn-success btn-xs" onclick="openCameraForMission('${activeMission.id}')">كاميرا AI</button>`
+          `<button class="btn btn-success btn-xs" onclick="openCameraForMission('${activeMission.id}')">كاميرا AI</button>`
             : `<span style="color:var(--muted);font-size:11px;">${K.Geo.getArabicDirection(vis.self.coords, { lat: activeMission.poi.lat, lng: activeMission.poi.lng })}</span>`}
         </div>
       `;
@@ -1058,8 +1057,8 @@ window.Kameen = window.Kameen || {};
               : `<div style="display:flex;flex-direction:column;gap:6px;">
                   <div class="grid-2">
                     <button class="btn btn-outline btn-sm" onclick="onCloseModal();Kameen.Map.recenter()">عرض الرادار</button>
-                    <button class="btn btn-success btn-sm" ${canProof ? "" : "disabled"} onclick="openCameraForMission('${m.id}')">
-                      ${canProof ? (m.requiresSpeech ? "صوّر فيديو بالصوت" : "صوّر للتقييم AI") : `اقترب (${dist}م)`}
+                    <button class="btn btn-success btn-sm" onclick="openCameraForMission('${m.id}')">
+                      ${m.requiresSpeech ? "صوّر فيديو بالصوت" : "صوّر للتقييم AI"}
                     </button>
                   </div>
                   <button class="btn btn-muted btn-xs" style="width:100%;" onclick="onRerollMission('${m.id}')">ملقتش المطلوب؟ ${rerollLbl}</button>

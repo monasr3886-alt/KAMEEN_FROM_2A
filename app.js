@@ -1145,13 +1145,24 @@ window.Kameen = window.Kameen || {};
   };
 
   window.openCameraForMission = (missionId) => {
-    K.state.activeCameraMissionId = missionId;
-    K.state.videoVerdict = null;
-    K.state.videoVerdictTone = "pending";
-    K.state.videoAnalyzing = false;
-    K.state.modal = "camera";
+    const st = K.state;
+    if (!st.engine) return K.showToast("ابدأ الجيم أولاً");
+    const vis = st.engine.getVisibleStateForPlayer(st.user.id);
+    let m = (vis.missions || []).find((x) => x.id === missionId);
+    if (!m && Array.isArray(vis.missions) && vis.missions.length) {
+      m = vis.missions.find((x) => x.status === "in_progress") || vis.missions[0];
+    }
+    if (!m) return K.showToast("لا توجد مهمة نشطة حالياً");
+    if (m.status === "pending") {
+      dispatchAction("MISSION_START", { missionId: m.id });
+    }
+    st.activeCameraMissionId = m.id;
+    st.videoVerdict = null;
+    st.videoVerdictTone = "pending";
+    st.videoAnalyzing = false;
+    st.modal = "camera";
     K.UI.renderModal();
-    setTimeout(() => void startInAppCamera(missionId), 40);
+    setTimeout(() => void startInAppCamera(m.id), 40);
   };
 
   window.onOpenLiveChat = () => {
