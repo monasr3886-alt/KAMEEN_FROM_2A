@@ -96,6 +96,7 @@ window.Kameen = window.Kameen || {};
     lastPocketTapAt: 0,
     deferredInstallPrompt: null,
     intelTab: "public",
+    settingsTab: "general",
     meetingIntelTab: "public",
     privateScanOpen: false,
     lastReadLiveChatCount: 0,
@@ -1290,6 +1291,20 @@ window.Kameen = window.Kameen || {};
       out.textContent = res.message;
     }
     K.showToast(res.ok ? "سيرفر الذكاء الاصطناعي متصل وشغال!" : "فشل فحص الاتصال — شوف السبب في الإعدادات");
+  };
+
+  window.onSwitchSettingsTab = (tab) => {
+    K.SFX.play("click");
+    K.state.settingsTab = tab === "ai_key" ? "ai_key" : "general";
+    K.UI.renderModal();
+  };
+
+  window.onClearCustomGroqKey = () => {
+    K.SFX.play("click");
+    K.state.groqKey = "";
+    try { localStorage.removeItem("kameen_groq_key"); } catch {}
+    K.UI.renderModal();
+    K.showToast("تم مسح المفتاح الخاص والرجوع لمتغير الخلفية");
   };
 
   window.onResetDefaultGroqKey = () => {

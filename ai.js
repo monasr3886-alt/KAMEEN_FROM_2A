@@ -11,12 +11,59 @@ window.Kameen = window.Kameen || {};
     return String(raw || "").replace(/[^\x21-\x7E]/g, "").trim();
   }
 
-  function getGroqKey() {
+  let serverEnvAvailable = null;
+
+  function getCustomGroqKey() {
     const userKey = sanitizeKey(K.state && K.state.groqKey);
     if (userKey && userKey.startsWith("gsk_") && userKey.length >= 20) return userKey;
     const defKey = sanitizeKey(K.CONFIG && K.CONFIG.DEFAULT_GROQ_KEY);
     if (defKey && defKey.startsWith("gsk_") && defKey.length >= 20) return defKey;
-    return userKey || defKey || "";
+    return "";
+  }
+
+  function hasAnyAiAccess() {
+    return Boolean(getCustomGroqKey() || serverEnvAvailable !== false);
+  }
+
+  function getProxyUrl() {
+    return (K.CONFIG && K.CONFIG.GROQ_PROXY_ENDPOINT) || "/api/groq";
+  }
+
+  async function proxyRequest(payload, timeoutMs = 15000) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    try {
+      const res = await fetch(getProxyUrl(), {
+        method: "POST",
+        signal: ctrl.signal,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      clearTimeout(timer);
+      if (res.status === 503) {
+        serverEnvAvailable = false;
+        return { ok: false, status: 503, error: "متغير البيئة غير مضبوط على السيرفر" };
+      }
+      if (res.status === 404) {
+        serverEnvAvailable = false;
+        return { ok: false, status: 404, error: "مسار الخلفية غير متاح" };
+      }
+      if (!res.ok) {
+        const msg = await readErrorBody(res);
+        return { ok: false, status: res.status, error: msg };
+      }
+      serverEnvAvailable = true;
+      const data = await res.json();
+      return { ok: true, status: 200, data };
+    } catch (err) {
+      clearTimeout(timer);
+      const isTimeout = err && err.name === "AbortError";
+      return {
+        ok: false,
+        status: isTimeout ? "TIMEOUT" : "NETWORK",
+        error: isTimeout ? "انتهى وقت الاتصال" : String(err?.message || "Failed to fetch"),
+      };
+    }
   }
 
   function normalizeArabic(str) {
@@ -56,42 +103,54 @@ window.Kameen = window.Kameen || {};
     }
   }
 
-  // Always fetch live active models from Groq FIRST so we NEVER call a deprecated/404 model ID!
   async function fetchLiveGroqModels(force = false) {
-    const key = getGroqKey();
-    if (!key) return { ok: false, status: 0, error: "مفيش مفتاح Groq", models: [] };
+    const customKey = getCustomGroqKey();
     if (!force && cachedLiveModels && Date.now() - cachedModelsAtMs < 300000) {
       return { ok: true, status: 200, error: "", models: cachedLiveModels };
     }
-    try {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 12000);
-      const res = await fetch("https://api.groq.com/openai/v1/models", {
-        method: "GET",
-        signal: ctrl.signal,
-        headers: { "Authorization": "Bearer " + key },
-      });
-      clearTimeout(timer);
-      if (!res.ok) {
-        const msg = await readErrorBody(res);
-        return { ok: false, status: res.status, error: msg, models: [] };
+
+    if (customKey) {
+      try {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 12000);
+        const res = await fetch("https://api.groq.com/openai/v1/models", {
+          method: "GET",
+          signal: ctrl.signal,
+          headers: { "Authorization": "Bearer " + customKey },
+        });
+        clearTimeout(timer);
+        if (!res.ok) {
+          const msg = await readErrorBody(res);
+          return { ok: false, status: res.status, error: msg, models: [] };
+        }
+        const j = await res.json();
+        const ids = (j.data || [])
+          .filter((m) => m && m.id && m.active !== false)
+          .map((m) => String(m.id));
+        cachedLiveModels = ids;
+        cachedModelsAtMs = Date.now();
+        return { ok: true, status: 200, error: "", models: ids };
+      } catch (err) {
+        const isTimeout = err && err.name === "AbortError";
+        return {
+          ok: false,
+          status: isTimeout ? "TIMEOUT" : "NETWORK",
+          error: isTimeout ? "انتهى وقت الاتصال" : String(err?.message || "Failed to fetch"),
+          models: [],
+        };
       }
-      const j = await res.json();
-      const ids = (j.data || [])
-        .filter((m) => m && m.id && m.active !== false)
-        .map((m) => String(m.id));
-      cachedLiveModels = ids;
-      cachedModelsAtMs = Date.now();
-      return { ok: true, status: 200, error: "", models: ids };
-    } catch (err) {
-      const isTimeout = err && err.name === "AbortError";
-      return {
-        ok: false,
-        status: isTimeout ? "TIMEOUT" : "NETWORK",
-        error: isTimeout ? "انتهى وقت الاتصال" : String(err?.message || "Failed to fetch"),
-        models: [],
-      };
     }
+
+    const prox = await proxyRequest({ action: "models" }, 12000);
+    if (!prox.ok || !prox.data) {
+      return { ok: false, status: prox.status || 0, error: prox.error || "تعذر الاتصال بالخلفية", models: [] };
+    }
+    const ids = (prox.data.data || [])
+      .filter((m) => m && m.id && m.active !== false)
+      .map((m) => String(m.id));
+    cachedLiveModels = ids;
+    cachedModelsAtMs = Date.now();
+    return { ok: true, status: 200, error: "", models: ids };
   }
 
   function isNonChatModel(id) {
@@ -179,67 +238,67 @@ window.Kameen = window.Kameen || {};
     return `خطأ من سيرفر Groq (${status || "?"}): ${d || "حاول تاني بعد لحظات."}`;
   }
 
-  // Live 1-tap diagnostics for Settings Drawer
   async function testConnection() {
-    const key = getGroqKey();
-    if (!key) {
-      return { ok: false, message: "لا يوجد مفتاح Groq AI محفوظ." };
-    }
     const res = await fetchLiveGroqModels(true);
     if (!res.ok) {
       return { ok: false, message: formatFriendlyError(res.status, res.error) };
     }
+    const modeLbl = getCustomGroqKey() ? "مفتاح AI مخصص" : "متغير Vercel في الخلفية";
     const visionList = pickVisionModelsFromLive(res.models);
-    const whisperList = res.models.filter((id) => /whisper/i.test(id));
-    const vTxt = visionList.length ? visionList[0] : "لا يوجد موديل صور واضح";
-    const wTxt = whisperList.length ? whisperList[0] : "غير متاح";
+    const vTxt = visionList.length ? visionList[0] : "تلقائي";
     return {
       ok: true,
-      message: `متصل بـ Groq (${res.models.length} موديل) • Vision: ${vTxt} • صوت: ${wTxt} • المتاح: ${visionList.slice(0, 3).join(", ") || res.models.slice(0, 4).join(", ")}`,
+      message: `متصل (${modeLbl}) • ${res.models.length} موديل • Vision: ${vTxt}`,
     };
   }
 
   async function callGroqChat(systemPrompt, userPrompt, maxTokens = 130) {
-    const key = getGroqKey();
-    if (!key) return null;
+    const customKey = getCustomGroqKey();
+    if (!customKey && serverEnvAvailable === false) return null;
     if (!cachedLiveModels) {
       await fetchLiveGroqModels(false);
     }
     const models = pickChatModelsFromLive(cachedLiveModels || []);
+    const messages = [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ];
+
     for (const model of models) {
       try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 12000);
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-          method: "POST",
-          signal: ctrl.signal,
-          headers: {
-            "Authorization": "Bearer " + key,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model,
-            messages: [
-              { role: "system", content: systemPrompt },
-              { role: "user", content: userPrompt },
-            ],
-            temperature: 0.85,
-            max_tokens: maxTokens,
-          }),
-        });
-        clearTimeout(timer);
-        if (res.ok) {
-          const j = await res.json();
-          const txt = j.choices?.[0]?.message?.content?.trim();
-          if (txt) return txt.replace(/^["«]|["»]$/g, "");
+        if (customKey) {
+          const ctrl = new AbortController();
+          const timer = setTimeout(() => ctrl.abort(), 12000);
+          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            signal: ctrl.signal,
+            headers: {
+              "Authorization": "Bearer " + customKey,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ model, messages, temperature: 0.85, max_tokens: maxTokens }),
+          });
+          clearTimeout(timer);
+          if (res.ok) {
+            const j = await res.json();
+            const txt = j.choices?.[0]?.message?.content?.trim();
+            if (txt) return txt.replace(/^["«]|["»]$/g, "");
+          }
+          if (res.status === 401) break;
+        } else {
+          const prox = await proxyRequest({ action: "chat", model, messages, temperature: 0.85, max_tokens: maxTokens }, 12000);
+          if (prox.ok && prox.data) {
+            const txt = prox.data.choices?.[0]?.message?.content?.trim();
+            if (txt) return txt.replace(/^["«]|["»]$/g, "");
+          }
+          if (prox.status === 503 || prox.status === 404) break;
         }
-        if (res.status === 401) break;
       } catch {}
     }
     return null;
   }
 
-  async function postVisionAttempt(key, model, framesSubset, promptText) {
+  async function postVisionAttempt(customKey, model, framesSubset, promptText) {
     const contentParts = [{ type: "text", text: promptText }];
     for (const b64 of framesSubset) {
       contentParts.push({
@@ -247,55 +306,58 @@ window.Kameen = window.Kameen || {};
         image_url: { url: "data:image/jpeg;base64," + b64 },
       });
     }
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 25000);
-    try {
-      const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        signal: ctrl.signal,
-        headers: {
-          "Authorization": "Bearer " + key,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: contentParts }],
-          temperature: 0.2,
-          max_tokens: 180,
-        }),
-      });
-      clearTimeout(timer);
-      if (!res.ok) {
-        const errMsg = await readErrorBody(res);
-        return { ok: false, status: res.status, error: errMsg, raw: "" };
+    const messages = [{ role: "user", content: contentParts }];
+
+    if (customKey) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 25000);
+      try {
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          signal: ctrl.signal,
+          headers: {
+            "Authorization": "Bearer " + customKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ model, messages, temperature: 0.2, max_tokens: 180 }),
+        });
+        clearTimeout(timer);
+        if (!res.ok) {
+          const errMsg = await readErrorBody(res);
+          return { ok: false, status: res.status, error: errMsg, raw: "" };
+        }
+        const j = await res.json();
+        return { ok: true, status: 200, error: "", raw: j.choices?.[0]?.message?.content || "" };
+      } catch (err) {
+        clearTimeout(timer);
+        const isTimeout = err && err.name === "AbortError";
+        return {
+          ok: false,
+          status: isTimeout ? "TIMEOUT" : "NETWORK",
+          error: isTimeout ? "timeout" : String(err?.message || "network_error"),
+          raw: "",
+        };
       }
-      const j = await res.json();
-      return { ok: true, status: 200, error: "", raw: j.choices?.[0]?.message?.content || "" };
-    } catch (err) {
-      clearTimeout(timer);
-      const isTimeout = err && err.name === "AbortError";
-      return {
-        ok: false,
-        status: isTimeout ? "TIMEOUT" : "NETWORK",
-        error: isTimeout ? "timeout" : String(err?.message || "network_error"),
-        raw: "",
-      };
     }
+
+    const prox = await proxyRequest({ action: "chat", model, messages, temperature: 0.2, max_tokens: 180 }, 25000);
+    if (!prox.ok || !prox.data) {
+      return { ok: false, status: prox.status || "NETWORK", error: prox.error || "proxy_error", raw: "" };
+    }
+    return { ok: true, status: 200, error: "", raw: prox.data.choices?.[0]?.message?.content || "" };
   }
 
-  // Strict Mission-Specific Vision Verification: ALWAYS queries live models first — ZERO 404 on dead models!
   async function verifyMissionWithGroqVision(framesB64, mission) {
-    const key = getGroqKey();
-    if (!key) {
+    const customKey = getCustomGroqKey();
+    if (!customKey && serverEnvAvailable === false) {
       return {
         ok: false,
         noKey: true,
         seen: "",
-        reason: "لازم تضيف مفتاح Groq AI في الإعدادات (≡) عشان الذكاء الاصطناعي يفحص المهمة!",
+        reason: "تقدر تضيف مفتاح AI خاص في الإعدادات (≡) أو تضبط متغير البيئة على Vercel.",
       };
     }
 
-    // 1. Discover LIVE models on this Groq key BEFORE calling chat/completions
     const live = await fetchLiveGroqModels(false);
     if (!live.ok) {
       return { ok: false, seen: "", reason: formatFriendlyError(live.status, live.error) };
@@ -306,7 +368,7 @@ window.Kameen = window.Kameen || {};
       return {
         ok: false,
         seen: "",
-        reason: `حساب Groq ده مفيش عليه موديلات صور متاحة حالياً (${live.models.slice(0, 5).join(", ")}).`,
+        reason: `لا توجد موديلات صور متاحة حالياً (${live.models.slice(0, 5).join(", ")}).`,
       };
     }
 
@@ -333,13 +395,10 @@ window.Kameen = window.Kameen || {};
     const triedErrors = [];
 
     for (const model of visionModels) {
-      let attempt = await postVisionAttempt(key, model, multiFrames, promptText);
-
-      // If multi-frame payload rejected (400 / 413), retry same model with 1 sharp frame (some models allow max 1 image!)
+      let attempt = await postVisionAttempt(customKey, model, multiFrames, promptText);
       if (!attempt.ok && multiFrames.length > 1 && (attempt.status === 400 || attempt.status === 413)) {
-        attempt = await postVisionAttempt(key, model, middleFrame, promptText);
+        attempt = await postVisionAttempt(customKey, model, middleFrame, promptText);
       }
-
       if (attempt.ok) {
         cachedWorkingVisionModel = model;
         const raw = attempt.raw;
@@ -362,15 +421,12 @@ window.Kameen = window.Kameen || {};
       if (attempt.status === 401 || attempt.status === 403 || attempt.status === 429) {
         return { ok: false, seen: "", reason: formatFriendlyError(attempt.status, attempt.error) };
       }
-
-      // Preserve the most informative error (don't let a generic 404 overwrite a real 400!)
       if (!bestErrStatus || (bestErrStatus === 404 && attempt.status !== 404)) {
         bestErrStatus = attempt.status;
         bestErrDetail = `[${model}] ${attempt.error}`;
       }
     }
 
-    // Force-refresh model cache on next attempt if all candidates failed
     cachedModelsAtMs = 0;
     return {
       ok: false,
@@ -379,10 +435,9 @@ window.Kameen = window.Kameen || {};
     };
   }
 
-  // Real Arabic Speech Verification via Groq Whisper
   async function verifyMissionSpeechWithGroqWhisper(file, mission) {
-    const key = getGroqKey();
-    if (!key || !mission || !Array.isArray(mission.requiresSpeech) || !mission.requiresSpeech.length) {
+    const customKey = getCustomGroqKey();
+    if (!customKey || !mission || !Array.isArray(mission.requiresSpeech) || !mission.requiresSpeech.length) {
       return { checked: false, ok: true, transcript: "" };
     }
     if (!file || file.size > 20 * 1024 * 1024) {
@@ -415,7 +470,7 @@ window.Kameen = window.Kameen || {};
         const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
           method: "POST",
           signal: ctrl.signal,
-          headers: { "Authorization": "Bearer " + key },
+          headers: { "Authorization": "Bearer " + customKey },
           body: fd,
         });
         clearTimeout(timer);
@@ -725,7 +780,8 @@ window.Kameen = window.Kameen || {};
   }
 
   K.AI = {
-    getGroqKey,
+    getCustomGroqKey,
+    hasAnyAiAccess,
     testConnection,
     callGroqChat,
     verifyMissionWithGroqVision,

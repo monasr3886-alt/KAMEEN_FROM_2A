@@ -1352,15 +1352,49 @@ window.Kameen = window.Kameen || {};
         }
       : (inLobby ? st.lobby : st.createForm);
 
-    const t = K.Location.getTelemetry();
-    const hasKey = Boolean(K.AI.getGroqKey());
-    const canAnchor = st.route === "create" || st.route === "game" || st.route === "simulation";
+    const settingsTab = st.settingsTab === "ai_key" ? "ai_key" : "general";
+    const hasCustomKey = Boolean(K.AI.getCustomGroqKey());
 
-    return `
+    const subTabs = `
+      <div class="intel-tabs">
+        <button class="intel-tab-btn ${settingsTab === "general" ? "active-public" : ""}" onclick="onSwitchSettingsTab('general')">
+          <span>إعدادات اللعبة</span>
+        </button>
+        <button class="intel-tab-btn ${settingsTab === "ai_key" ? "active-private" : ""}" onclick="onSwitchSettingsTab('ai_key')">
+          <span>مفتاح AI خاص</span>
+          <span class="ver-pill">${hasCustomKey ? "مضاف" : "خلفية"}</span>
+        </button>
+      </div>
+    `;
+
+    if (settingsTab === "ai_key") {
+      return subTabs + `
+        <div class="card" style="display:flex;flex-direction:column;gap:10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span class="eyebrow" style="color:var(--amber);">إضافة مفتاح AI خاص بك</span>
+            <span class="pill ${hasCustomKey ? "pill-green" : "pill-amber"}">${hasCustomKey ? "مفتاح خاص مفعّل" : "يعمل عبر متغير الخلفية"}</span>
+          </div>
+          <div style="font-size:11.5px;color:var(--muted);font-weight:700;line-height:1.6;">
+            الافتراضي شغال تلقائياً في الخلفية من متغير البيئة على Vercel، ولو حبيت تستخدم مفتاح Groq خاص بيك ألصقه هنا:
+          </div>
+          <input class="input" style="padding:10px 12px;font-size:12px;direction:ltr;" type="password"
+            placeholder="gsk_..."
+            value="${esc(st.groqKey)}"
+            oninput="const v=this.value.replace(/[^\x21-\x7E]/g,'').trim();Kameen.state.groqKey=v;try{localStorage.setItem('kameen_groq_key',v)}catch{}" />
+          <div class="grid-2">
+            <button class="btn btn-cyan btn-xs" onclick="void onTestGroqConnection()">فحص الاتصال</button>
+            <button class="btn btn-outline btn-xs" onclick="onClearCustomGroqKey()">مسح المفتاح الخاص</button>
+          </div>
+          <div id="groq-test-result" class="hidden" style="font-size:11.5px;font-weight:800;line-height:1.5;padding:6px 8px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);"></div>
+        </div>
+      `;
+    }
+
+    return subTabs + `
       <div class="card" style="display:flex;flex-direction:column;gap:10px;">
         <div class="eyebrow" style="color:var(--crimson);">إعدادات رصد اللاعبين على الرادار</div>
         <div>
-          <div style="font-size:11.5px;font-weight:800;margin-bottom:6px;">توقيت تحديث قراءة اللاعبين (كل كام دقيقة):</div>
+          <div style="font-size:11.5px;font-weight:800;margin-bottom:6px;">توقيت تحديث قراءة اللاعبين:</div>
           <div class="grid-5">
             ${[30, 60, 120, 180, 300].map((sec) => `
               <button class="seg-btn mono ${cfg.revealIntervalSec === sec ? "active" : ""}" ${canEditGameRules ? "" : "disabled"}
@@ -1383,7 +1417,7 @@ window.Kameen = window.Kameen || {};
 
       ${!inMatch ? `
         <div class="card" style="display:flex;flex-direction:column;gap:10px;">
-          <div class="eyebrow">إعدادات الجيم والزون</div>
+          <div class="eyebrow">إعدادات الجيم</div>
           <div class="grid-3">
             <div>
               <div style="font-size:10.5px;color:var(--muted);font-weight:800;margin-bottom:4px;">المدة</div>
@@ -1415,46 +1449,9 @@ window.Kameen = window.Kameen || {};
         <div class="hz-switch ${st.strictLiveCamera ? "on" : ""}"></div>
       </div>
 
-      <div class="card" style="display:flex;flex-direction:column;gap:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span class="eyebrow">نظام الموقع التلقائي (HYPERLOCK 3M)</span>
-          <span class="pill pill-green">تلقائي</span>
-        </div>
-        <div class="tele-grid">
-          <div class="tele-cell">
-            <div class="tele-lbl">الدقة الحالية</div>
-            <div class="tele-val mono">${t.fusedAcc !== null ? "±" + t.fusedAcc.toFixed(1) + "m" : "جاري المسح"}</div>
-          </div>
-          <div class="tele-cell">
-            <div class="tele-lbl">البوصلة والخطوات</div>
-            <div class="tele-val">${t.headingDeg !== null ? Math.round(t.headingDeg) + "° " + esc(t.headingArabic) : "تلقائي"} • ${t.stepsTotal}</div>
-          </div>
-        </div>
-        ${canAnchor ? `
-          <div class="grid-2">
-            <button class="btn btn-outline btn-xs" onclick="onStartAnchorCalibration()">ضبط مكاني يدوياً</button>
-            <button class="btn btn-outline btn-xs" onclick="Kameen.SFX.toggle();Kameen.UI.renderModal()">الصوت: ${K.SFX.muted ? "مكتوم" : "مفعّل"}</button>
-          </div>
-        ` : `
-          <button class="btn btn-outline btn-xs" onclick="Kameen.SFX.toggle();Kameen.UI.renderModal()">الصوت: ${K.SFX.muted ? "مكتوم" : "مفعّل"}</button>
-        `}
-      </div>
-
-      <div class="card" style="display:flex;flex-direction:column;gap:8px;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-          <span class="eyebrow">مفتاح الذكاء الاصطناعي (GROQ AI)</span>
-          <span class="pill ${hasKey ? "pill-green" : "pill-amber"}">${hasKey ? "محفوظ" : "غير مضاف"}</span>
-        </div>
-        <input class="input" style="padding:9px 11px;font-size:12px;direction:ltr;" type="password"
-          placeholder="gsk_..."
-          value="${esc(st.groqKey)}"
-          oninput="const v=this.value.replace(/[^\x21-\x7E]/g,'').trim();Kameen.state.groqKey=v;try{localStorage.setItem('kameen_groq_key',v)}catch{}" />
-        <div class="grid-2">
-          <button class="btn btn-cyan btn-xs" onclick="void onTestGroqConnection()">فحص اتصال AI الآن</button>
-          <button class="btn btn-outline btn-xs" onclick="onResetDefaultGroqKey()">استعادة المفتاح المدمج</button>
-        </div>
-        <div id="groq-test-result" class="hidden" style="font-size:11.5px;font-weight:800;line-height:1.5;padding:6px 8px;border-radius:8px;background:var(--surface-2);border:1px solid var(--border);"></div>
-      </div>
+      <button class="btn btn-outline btn-sm" style="width:100%;" onclick="Kameen.SFX.toggle();Kameen.UI.renderModal()">
+        الصوت: ${K.SFX.muted ? "مكتوم" : "مفعّل"}
+      </button>
 
       ${inMatch ? `
         <button class="btn btn-crimson-outline btn-sm" style="width:100%;" onclick="exitGameToLanding()">مغادرة الجيم والعودة للرئيسية</button>
@@ -1847,12 +1844,7 @@ window.Kameen = window.Kameen || {};
             <div style="font-size:10.5px;color:var(--cyan);font-weight:800;margin-top:5px;">فحص AI: ${esc(m.aiHintAr || "الذكاء الاصطناعي هيفحص اللقطة بدقة.")}</div>
           </div>
         ` : ""}
-        ${!hasKey ? `
-          <div class="intel-item" style="border-right-color:var(--crimson);">
-            مفتاح Groq AI غير مضاف!
-            <button class="btn btn-crimson-outline btn-xs" style="width:100%;margin-top:6px;" onclick="onOpenModal('game_settings')">إضافة مفتاح Groq AI</button>
-          </div>
-        ` : ""}
+        
         <div class="cam-stage">
           <video id="inapp-cam-video" class="cam-video" autoplay playsinline muted></video>
           <div class="cam-reticle"><span class="tl"></span><span class="tr"></span><span class="bl"></span><span class="br"></span></div>
