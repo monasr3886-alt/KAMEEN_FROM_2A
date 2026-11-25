@@ -25,6 +25,7 @@
     });
     window.addEventListener("unhandledrejection", function (e) {
       var reason = e && e.reason ? (e.reason.message || String(e.reason)) : "Unhandled Promise Rejection";
+      if (/RTL Text Plugin/i.test(reason)) return;
       showFatal("PROMISE", reason, "", 0);
     });
   })();
@@ -43,7 +44,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800;900&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" crossorigin="" />
-  <link rel="stylesheet" href="./styles.css?v=36" />
+  <link rel="stylesheet" href="./styles.css?v=37" />
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js" crossorigin=""></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -87,13 +88,13 @@
   <!-- Tactical Slide-Up Drawers & Focus Modals -->
   <div id="modal-root"></div>
 
-  <script src="./config.js?v=36"></script>
-  <script src="./engine.js?v=36"></script>
-  <script src="./location.js?v=36"></script>
-  <script src="./ai.js?v=36"></script>
-  <script src="./network.js?v=36"></script>
-  <script src="./map.js?v=36"></script>
-  <script src="./ui.js?v=36"></script>
-  <script src="./app.js?v=36"></script>
+  <script src="./config.js?v=37"></script>
+  <script src="./engine.js?v=37"></script>
+  <script src="./location.js?v=37"></script>
+  <script src="./ai.js?v=37"></script>
+  <script src="./network.js?v=37"></script>
+  <script src="./map.js?v=37"></script>
+  <script src="./ui.js?v=37"></script>
+  <script src="./app.js?v=37"></script>
 </body>
 </html>

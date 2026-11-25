@@ -12,8 +12,24 @@ window.Kameen = window.Kameen || {};
     if (rtlPluginInitialized || typeof window.maplibregl === "undefined") return;
     rtlPluginInitialized = true;
     try {
-      if (typeof window.maplibregl.setRTLTextPlugin === "function") {
-        window.maplibregl.setRTLTextPlugin(
+try {
+  if (window.maplibregl && typeof window.maplibregl.setRTLTextPlugin === 'function') {
+    const _rtlRes = window.maplibregl.setRTLTextPlugin(
+      'https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.3.0/dist/mapbox-gl-rtl-text.js',
+      true
+    );
+    if (_rtlRes && typeof _rtlRes.catch === 'function') _rtlRes.catch(() => {});
+  }
+} catch {}
+try {
+  if (window.maplibregl && typeof window.maplibregl.setRTLTextPlugin === 'function') {
+    const _rtlRes = window.maplibregl.setRTLTextPlugin(
+      'https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.3.0/dist/mapbox-gl-rtl-text.js',
+      true
+    );
+    if (_rtlRes && typeof _rtlRes.catch === 'function') _rtlRes.catch(() => {});
+  }
+} catch {}
           "https://unpkg.com/@mapbox/mapbox-gl-rtl-text@0.3.0/dist/mapbox-gl-rtl-text.js",
           true
         );

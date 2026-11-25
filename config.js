@@ -4,7 +4,7 @@ window.Kameen = window.Kameen || {};
 
 (function (K) {
   K.CONFIG = {
-    VERSION: "v5.15",
+    VERSION: "v5.20",
     LOGO_PATH: "./logo.jpg",
     DEFAULT_CENTER: { lat: 29.9753, lng: 30.9455, accuracyMeters: 6 },
     // ضع مفتاح Groq في متغير البيئة على Vercel أو أدخله من قائمة الإعدادات (☰) داخل الموقع
