@@ -248,7 +248,6 @@ window.Kameen = window.Kameen || {};
         <div class="hud-ticker">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${locTxt}</span>
           `<button class="btn btn-success btn-xs" onclick="openCameraForMission('${activeMission.id}')">كاميرا AI</button>`
-            : `<span style="color:var(--muted);font-size:11px;">${K.Geo.getArabicDirection(vis.self.coords, { lat: activeMission.poi.lat, lng: activeMission.poi.lng })}</span>`}
         </div>
       `;
     }
