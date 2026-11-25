@@ -247,7 +247,7 @@ window.Kameen = window.Kameen || {};
       return `
         <div class="hud-ticker">
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${locTxt}</span>
-          `<button class="btn btn-success btn-xs" onclick="openCameraForMission('${activeMission.id}')">كاميرا AI</button>`
+          <button class="btn btn-success btn-xs" onclick="openCameraForMission('${activeMission.id}')">كاميرا AI</button>
         </div>
       `;
     }
@@ -871,7 +871,7 @@ window.Kameen = window.Kameen || {};
           ${vis.self.alive ? `
             <div style="display:flex;gap:5px;overflow-x:auto;padding:8px 0;">
               ${K.QUICK_CHAT_LINES.map((q) =>
-                `<button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickMeetingChat('${esc(q)}')">${esc(q)}</button>`
+                <button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickMeetingChat('${esc(q)}')">${esc(q)}</button>
               ).join("")}
             </div>
             <div style="display:flex;gap:6px;">
@@ -1897,7 +1897,7 @@ window.Kameen = window.Kameen || {};
         ${canSend ? `
           <div class="chat-quick-strip">
             ${quickLines.map((q) =>
-              `<button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickLiveChat('${esc(q)}')">${esc(q)}</button>`
+              <button class="btn btn-outline btn-xs" style="white-space:nowrap;" onclick="onQuickLiveChat('${esc(q)}')">${esc(q)}</button>
             ).join("")}
           </div>
           <div class="chat-composer">
