@@ -4,11 +4,11 @@ window.Kameen = window.Kameen || {};
 
 (function (K) {
   K.CONFIG = {
-    VERSION: "v5.10",
+    VERSION: "v5.11",
     LOGO_PATH: "./logo.jpg",
     DEFAULT_CENTER: { lat: 29.9753, lng: 30.9455, accuracyMeters: 6 },
-    // الصق مفتاح Groq هنا لو هترفع مباشر على Vercel أو في Repo خاص (أو احفظه مرة واحدة من قائمة الإعدادات ☰)
-    DEFAULT_GROQ_KEY: "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",
+    // ضع مفتاح Groq في متغير البيئة على Vercel أو أدخله من قائمة الإعدادات (☰) داخل الموقع
+    DEFAULT_GROQ_KEY: "",
     SUPABASE_URL: "https://raxycqblimomlwfcwxml.supabase.co",
     SUPABASE_KEY: "sb_publishable_4Y6UnQ9dr4yoBPyme7smYg_7oTDlxKr",
   };
