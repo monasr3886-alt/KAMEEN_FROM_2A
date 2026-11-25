@@ -1,14 +1,24 @@
 {
   "name": "كمين — KAMEEN",
   "short_name": "كمين",
-  "start_url": "./",
+  "description": "لعبة مطاردة وتجسس تكتيكية على أرض الواقع بالرادار والزون والذكاء الاصطناعي",
+  "start_url": "./index.html",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "fullscreen"
+  ],
+  "orientation": "portrait",
   "background_color": "#000000",
   "theme_color": "#000000",
   "dir": "rtl",
   "lang": "ar",
   "icons": [
-    { "src": "./logo.jpg", "sizes": "192x192", "type": "image/jpeg" },
-    { "src": "./logo.jpg", "sizes": "512x512", "type": "image/jpeg" }
+    {
+      "src": "./logo.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
   ]
 }

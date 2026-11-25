@@ -96,7 +96,6 @@ window.Kameen = window.Kameen || {};
     lastPocketTapAt: 0,
     deferredInstallPrompt: null,
     intelTab: "public",
-    settingsTab: "general",
     meetingIntelTab: "public",
     privateScanOpen: false,
     lastReadLiveChatCount: 0,
@@ -1145,24 +1144,13 @@ window.Kameen = window.Kameen || {};
   };
 
   window.openCameraForMission = (missionId) => {
-    const st = K.state;
-    if (!st.engine) return K.showToast("ابدأ الجيم أولاً");
-    const vis = st.engine.getVisibleStateForPlayer(st.user.id);
-    let m = (vis.missions || []).find((x) => x.id === missionId);
-    if (!m && Array.isArray(vis.missions) && vis.missions.length) {
-      m = vis.missions.find((x) => x.status === "in_progress") || vis.missions[0];
-    }
-    if (!m) return K.showToast("لا توجد مهمة نشطة حالياً");
-    if (m.status === "pending") {
-      dispatchAction("MISSION_START", { missionId: m.id });
-    }
-    st.activeCameraMissionId = m.id;
-    st.videoVerdict = null;
-    st.videoVerdictTone = "pending";
-    st.videoAnalyzing = false;
-    st.modal = "camera";
+    K.state.activeCameraMissionId = missionId;
+    K.state.videoVerdict = null;
+    K.state.videoVerdictTone = "pending";
+    K.state.videoAnalyzing = false;
+    K.state.modal = "camera";
     K.UI.renderModal();
-    setTimeout(() => void startInAppCamera(m.id), 40);
+    setTimeout(() => void startInAppCamera(missionId), 40);
   };
 
   window.onOpenLiveChat = () => {
@@ -1302,20 +1290,6 @@ window.Kameen = window.Kameen || {};
       out.textContent = res.message;
     }
     K.showToast(res.ok ? "سيرفر الذكاء الاصطناعي متصل وشغال!" : "فشل فحص الاتصال — شوف السبب في الإعدادات");
-  };
-
-  window.onSwitchSettingsTab = (tab) => {
-    K.SFX.play("click");
-    K.state.settingsTab = tab === "ai_key" ? "ai_key" : "general";
-    K.UI.renderModal();
-  };
-
-  window.onClearCustomGroqKey = () => {
-    K.SFX.play("click");
-    K.state.groqKey = "";
-    try { localStorage.removeItem("kameen_groq_key"); } catch {}
-    K.UI.renderModal();
-    K.showToast("تم مسح المفتاح الخاص والرجوع لمتغير الخلفية");
   };
 
   window.onResetDefaultGroqKey = () => {
@@ -1497,6 +1471,7 @@ window.Kameen = window.Kameen || {};
   function pickBestRecorderOptions(stream, wantsAudio) {
     if (typeof MediaRecorder === "undefined") return null;
     const audioTracks = stream.getAudioTracks();
+    // For speech dares, recording ONLY the lightweight audio track (40KB) makes Groq Whisper instant on 4G!
     if (wantsAudio && audioTracks.length > 0) {
       const audioStream = new MediaStream(audioTracks);
       const audioMimes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
@@ -1507,6 +1482,7 @@ window.Kameen = window.Kameen || {};
       }
       return { targetStream: audioStream, mimeType: "" };
     }
+    // Otherwise try light video recording
     const videoMimes = ["video/webm;codecs=vp8,opus", "video/webm", "video/mp4"];
     for (const m of videoMimes) {
       try {
@@ -1524,30 +1500,31 @@ window.Kameen = window.Kameen || {};
     if (camCtrl.recTimer) { clearInterval(camCtrl.recTimer); camCtrl.recTimer = null; }
     if (camCtrl.frameTimer) { clearInterval(camCtrl.frameTimer); camCtrl.frameTimer = null; }
 
+    // Grab final closing frame right at stop
     const endSnap = grabLiveVideoFrame();
     if (endSnap) {
       camCtrl.capturedFrames.push(endSnap.b64);
       if (endSnap.avgLum > camCtrl.capturedMaxLum) camCtrl.capturedMaxLum = endSnap.avgLum;
     }
 
-    // Fallback to a light frame if camera hadn't painted a frame yet so video capture never stalls
-    if (!camCtrl.capturedFrames.length) {
-      camCtrl.capturedFrames.push(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
-      );
-    }
-
+    // Keep up to 3 well-spaced frames (start, middle, end)
     let frames = camCtrl.capturedFrames;
     if (frames.length > 3) {
       frames = [frames[0], frames[Math.floor(frames.length / 2)], frames[frames.length - 1]];
     }
-    const maxLum = camCtrl.capturedMaxLum > 0 ? camCtrl.capturedMaxLum : 40;
+    const maxLum = camCtrl.capturedMaxLum;
     const mId = camCtrl.recordingMissionId || st.activeCameraMissionId;
     const wantsAudio = camCtrl.wantsAudio;
 
     K.UI.updateCameraModalStatus();
 
     const submitNow = (audioBlob) => {
+      if (!frames.length) {
+        st.videoVerdictTone = "error";
+        st.videoVerdict = "معرفتش ألقط صورة من الكاميرا — حاول تاني.";
+        K.UI.updateCameraModalStatus();
+        return;
+      }
       void K.AI.analyzeCapturedSubmission(mId, {
         frames,
         maxAvgLum: maxLum,
@@ -1559,28 +1536,13 @@ window.Kameen = window.Kameen || {};
     if (camCtrl.recorder && camCtrl.recorder.state !== "inactive") {
       const rec = camCtrl.recorder;
       const recMime = rec.mimeType || "audio/webm";
-      let submitted = false;
-      const safeSubmit = (blob) => {
-        if (submitted) return;
-        submitted = true;
-        submitNow(blob);
-      };
       rec.onstop = () => {
         const blob = camCtrl.chunks.length ? new Blob(camCtrl.chunks, { type: recMime }) : null;
         camCtrl.chunks = [];
         camCtrl.recorder = null;
-        safeSubmit(blob);
+        submitNow(blob);
       };
-      try { rec.stop(); } catch { safeSubmit(null); }
-      // Safety fallback in case mobile browser does not fire MediaRecorder.onstop
-      setTimeout(() => {
-        if (!submitted) {
-          const blob = camCtrl.chunks.length ? new Blob(camCtrl.chunks, { type: recMime }) : null;
-          camCtrl.chunks = [];
-          camCtrl.recorder = null;
-          safeSubmit(blob);
-        }
-      }, 900);
+      try { rec.stop(); } catch { submitNow(null); }
     } else {
       submitNow(null);
     }
@@ -1596,9 +1558,9 @@ window.Kameen = window.Kameen || {};
       return;
     }
 
-    // If camera is still starting, mark it ready on user tap so button never feels frozen/disabled
-    if (!st.camera.ready) {
-      st.camera.ready = true;
+    if (!camCtrl.stream || !st.camera.ready) {
+      K.showToast("استنى الكاميرا تفتح الأول");
+      return;
     }
 
     K.SFX.play("click");
@@ -1611,12 +1573,14 @@ window.Kameen = window.Kameen || {};
     camCtrl.startedAtMs = Date.now();
     camCtrl.recordingMissionId = st.activeCameraMissionId;
 
+    // Grab initial frame immediately
     const firstSnap = grabLiveVideoFrame();
     if (firstSnap) {
       camCtrl.capturedFrames.push(firstSnap.b64);
       camCtrl.capturedMaxLum = firstSnap.avgLum;
     }
 
+    // Grab a keyframe every 2 seconds while moving/chasing!
     camCtrl.frameTimer = setInterval(() => {
       if (!st.camera.recording) return;
       const snap = grabLiveVideoFrame();
@@ -1626,7 +1590,8 @@ window.Kameen = window.Kameen || {};
       }
     }, 2000);
 
-    if (camCtrl.stream && camCtrl.wantsAudio) {
+    // Start MediaRecorder for speech missions (captures clear voice for Groq Whisper!)
+    if (camCtrl.wantsAudio) {
       const opt = pickBestRecorderOptions(camCtrl.stream, true);
       if (opt) {
         try {
@@ -1644,6 +1609,7 @@ window.Kameen = window.Kameen || {};
       }
     }
 
+    // Live timer + auto-stop at 8 seconds so it stays super crisp & fast!
     camCtrl.recTimer = setInterval(() => {
       const sec = Math.min(st.camera.maxRecSec, (Date.now() - camCtrl.startedAtMs) / 1000);
       st.camera.recSec = sec;
