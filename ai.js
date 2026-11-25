@@ -706,6 +706,7 @@ window.Kameen = window.Kameen || {};
 
   K.AI = {
     getCustomGroqKey,
+    getGroqKey: getCustomGroqKey,
     hasAnyAiAccess,
     testConnection,
     callGroqChat,

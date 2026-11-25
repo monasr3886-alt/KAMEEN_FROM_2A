@@ -1802,7 +1802,7 @@ window.Kameen = window.Kameen || {};
     if (st.modal === "camera" && st.engine) {
       const vis = st.engine.getVisibleStateForPlayer(st.user.id);
       const m = (vis.missions || []).find((x) => x.id === st.activeCameraMissionId);
-      const hasKey = Boolean(K.AI.getGroqKey());
+      const hasKey = Boolean(K.AI.getCustomGroqKey());
       const wantsSpeech = Boolean(m && m.requiresSpeech && m.requiresSpeech.length);
       const wantsVideo = Boolean(m && (m.mediaType === "video" || wantsSpeech));
       const acceptAttr = wantsSpeech ? "video/*" : "image/*,video/*";
