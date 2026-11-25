@@ -1298,7 +1298,7 @@ window.Kameen = window.Kameen || {};
 
     const recBtn = document.getElementById("cam-rec-btn");
     if (recBtn) {
-      recBtn.disabled = !st.camera.ready || st.videoAnalyzing;
+      recBtn.disabled = Boolean(st.videoAnalyzing);
       if (st.videoAnalyzing) {
         recBtn.textContent = "الذكاء الاصطناعي بيفحص اللقطة...";
       } else if (st.camera.recording) {
@@ -1310,7 +1310,7 @@ window.Kameen = window.Kameen || {};
 
     const photoBtn = document.getElementById("cam-photo-btn");
     if (photoBtn) {
-      photoBtn.disabled = !st.camera.ready || st.videoAnalyzing || st.camera.recording;
+      photoBtn.disabled = Boolean(st.videoAnalyzing || st.camera.recording);
       photoBtn.textContent = st.videoAnalyzing ? "جاري التحليل بـ AI..." : "التقاط صورة فورية للـ AI";
     }
   }
@@ -1362,7 +1362,7 @@ window.Kameen = window.Kameen || {};
         </button>
         <button class="intel-tab-btn ${settingsTab === "ai_key" ? "active-private" : ""}" onclick="onSwitchSettingsTab('ai_key')">
           <span>مفتاح AI خاص</span>
-          <span class="ver-pill">${hasCustomKey ? "مضاف" : "خلفية"}</span>
+          <span class="ver-pill">${hasCustomKey ? "مضاف" : "اختياري"}</span>
         </button>
       </div>
     `;
@@ -1372,10 +1372,10 @@ window.Kameen = window.Kameen || {};
         <div class="card" style="display:flex;flex-direction:column;gap:10px;">
           <div style="display:flex;justify-content:space-between;align-items:center;">
             <span class="eyebrow" style="color:var(--amber);">إضافة مفتاح AI خاص بك</span>
-            <span class="pill ${hasCustomKey ? "pill-green" : "pill-amber"}">${hasCustomKey ? "مفتاح خاص مفعّل" : "يعمل عبر متغير الخلفية"}</span>
+            <span class="pill ${hasCustomKey ? "pill-green" : "pill-amber"}">${hasCustomKey ? "مفتاح خاص مفعّل" : "بانتظار المفتاح"}</span>
           </div>
           <div style="font-size:11.5px;color:var(--muted);font-weight:700;line-height:1.6;">
-            الافتراضي شغال تلقائياً في الخلفية من متغير البيئة على Vercel، ولو حبيت تستخدم مفتاح Groq خاص بيك ألصقه هنا:
+            أدخل مفتاح Groq الخاص بك هنا لتفعيل المحلل العام والخاص وفحص المهام بالذكاء الاصطناعي:
           </div>
           <input class="input" style="padding:10px 12px;font-size:12px;direction:ltr;" type="password"
             placeholder="gsk_..."
